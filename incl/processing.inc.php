@@ -68,6 +68,24 @@ function processNewBarcode($barcodeInput, $bestBeforeInDays = null, $price = nul
         $log = new LogOutput("Set quantity to $quantity for barcode $lastBarcode", EVENT_TYPE_MODE_CHANGE);
         return $log->setVerbose()->createLog();
     }
+    if ($barcode == $config["BARCODE_NUM_CLEAR"]) {
+        $config["QUANTITY_NUMBER"] = null;
+        $log = new LogOutput("Clear quantity number", EVENT_TYPE_CLEAR_QUANTITY_NUM);
+        return $log->setVerbose()->createLog();
+    }
+    if (stringStartsWith($barcode, $config["BARCODE_NUM"])) {
+        $quantity = str_replace($config["BARCODE_NUM"], "", $barcode);
+        checkIfNumeric($quantity);
+        if ($config["QUANTITY_NUMBER"] == null) {
+            $config["QUANTITY_NUMBER"] = (float)$quantity;
+            $log = new LogOutput("Set quantity to $quantity", EVENT_TYPE_UPDATE_QUANTITY_NUM);
+            return $log->setVerbose()->createLog();
+        } else {
+            $config["QUANTITY_NUMBER"] += (float)$quantity;
+            $log = new LogOutput("Update quantity to $quantity", EVENT_TYPE_UPDATE_QUANTITY_NUM);
+            return $log->setVerbose()->createLog();
+        }
+    }
     if (trim($barcode) == "") {
         $log = new LogOutput("Invalid barcode found", EVENT_TYPE_ERROR);
         return $log->setVerbose()->setWebsocketResultCode(WS_RESULT_PRODUCT_UNKNOWN)->createLog();
@@ -79,16 +97,21 @@ function processNewBarcode($barcodeInput, $bestBeforeInDays = null, $price = nul
         return $log->setVerbose()->createLog();
     }
 
+    $quantity = null;
+    if ($config["QUANTITY_NUMBER"] == null) {
+        $quantity = $config["QUANTITY_NUMBER"];
+        $config["QUANTITY_NUMBER"] = null;
+    }
     $sanitizedBarcode = sanitizeString($barcode);
     $lockGenerator    = new LockGenerator();
     $lockGenerator->createLock();
     $productInfo = API::getProductByBardcode($sanitizedBarcode);
     if ($productInfo == null) {
         $db->saveLastBarcode($sanitizedBarcode);
-        return processUnknownBarcode($sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price);
+        return processUnknownBarcode($sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price, $quantity);
     } else {
         $db->saveLastBarcode($sanitizedBarcode, $productInfo["name"]);
-        return processKnownBarcode($productInfo, $sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price);
+        return processKnownBarcode($productInfo, $sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price, $quantity);
     }
 }
 
@@ -145,6 +168,8 @@ const EVENT_TYPE_ADD_TO_SHOPPINGLIST = 15;
 const EVENT_TYPE_ASSOCIATE_PRODUCT   = 16;
 const EVENT_TYPE_ACTION_REQUIRED     = 17;
 const EVENT_TYPE_CONSUME_ALL_PRODUCT = 18;
+const EVENT_TYPE_UPDATE_QUANTITY_NUM = 19;
+const EVENT_TYPE_CLEAR_QUANTITY_NUM  = 20;
 
 
 const WS_RESULT_PRODUCT_FOUND     = 0;
@@ -163,10 +188,13 @@ function processChoreBarcode($barcode) {
 }
 
 //If grocy does not know this barcode
-function processUnknownBarcode($barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price) {
+function processUnknownBarcode($barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price, $quantity) {
     $db     = DatabaseConnection::getInstance();
     $amount = 1;
-    if ($db->getTransactionState() == STATE_PURCHASE) {
+    if ($quantity != null) {
+        $amount = $quantity;
+    }
+    else if ($db->getTransactionState() == STATE_PURCHASE) {
         $amount = $db->getQuantityByBarcode($barcode);
     }
     if ($db->isUnknownBarcodeAlreadyStored($barcode)) {
@@ -291,7 +319,7 @@ function processRefreshedBarcode($barcode) {
 const USE_NEW_INVENTORY_API = false;
 
 // Process a barcode that Grocy already knows
-function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price) {
+function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price, $quantity) {
     $config = BBConfig::getInstance();
     $db     = DatabaseConnection::getInstance();
 
@@ -308,7 +336,7 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
 
     switch ($state) {
         case STATE_CONSUME:
-            $amountToConsume = getQuantityForBarcode($barcode, true, $productInfo);
+            $amountToConsume = getQuantityForBarcode($barcode, true, $productInfo, $quantity);
 
             if ($productInfo["stockAmount"] > 0) {
                 if ($productInfo["stockAmount"] < $amountToConsume)
@@ -377,7 +405,7 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
             }
             return $output;
         case STATE_PURCHASE:
-            $amount = getQuantityForBarcode($barcode, false, $productInfo);
+            $amount = getQuantityForBarcode($barcode, false, $productInfo, $quantity);
             if ($productInfo["defaultBestBefore"] == 0 && $bestBeforeInDays == null)
                 $additionalLog = " [WARNING]: No default best before date set!";
             else
@@ -435,14 +463,21 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
     }
 }
 
-function getQuantityForBarcode($barcode, $isConsume, $productInfo) {
+function getQuantityForBarcode($barcode, $isConsume, $productInfo, $quantity) {
     $config = BBConfig::getInstance();
 
-    if ($isConsume && !$config["CONSUME_SAVED_QUANTITY"])
-        return 1;
-    if ($config["USE_GROCY_QU_FACTOR"])
-        return intval($productInfo["quFactor"]);
-    return $amount = DatabaseConnection::getInstance()->getQuantityByBarcode($barcode);
+    $resultQuantity = 1;
+    if ($quantity != null) {
+        $resultQuantity = $quantity;
+    }
+    if ($config["USE_GROCY_QU_FACTOR"]) {
+        $resultQuantity *= intval($productInfo["quFactor"]);
+    }
+    else if ($isConsume && $quantity == null && $config["CONSUME_SAVED_QUANTITY"]) {
+        $resultQuantity = DatabaseConnection::getInstance()->getQuantityByBarcode($barcode);
+    }
+
+    return $resultQuantity;
 }
 
 
@@ -509,7 +544,7 @@ function cleanNameForTagLookup($input) {
     return explode(' ', $cleanWords);
 }
 
-//If a quantity barcode was scanned, add the quantitiy and process further
+//If a quantity barcode was scanned, add the quantity and process further
 function changeQuantityAfterScan($amount) {
     $config = BBConfig::getInstance();
 
