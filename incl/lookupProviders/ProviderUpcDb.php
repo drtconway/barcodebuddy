@@ -23,16 +23,16 @@ class ProviderUpcDb extends LookupProvider {
     function __construct($apiKey = null) {
         parent::__construct($apiKey);
         $this->providerName       = "UPC Item DB";
-        $this->providerConfigKey = "LOOKUP_USE_UPC";
+        $this->providerConfigKey  = "LOOKUP_USE_UPC";
         $this->ignoredResultCodes = array(400, 404);
     }
 
     /**
      * Looks up a barcode
      * @param string $barcode The barcode to lookup
-     * @return null|string         Name of product, null if none found
+     * @return array|null Name of product, null if none found
      */
-    public function lookupBarcode($barcode) {
+    public function lookupBarcode(string $barcode): ?array {
         if (!$this->isProviderEnabled())
             return null;
 
@@ -42,7 +42,7 @@ class ProviderUpcDb extends LookupProvider {
             return null;
 
         if (isset($result["items"][0]["title"]) && $result["items"][0]["title"] != "") {
-            return sanitizeString($result["items"][0]["title"]);
+            return self::createReturnArray(sanitizeString($result["items"][0]["title"]));
         } else
             return null;
     }

@@ -17,6 +17,12 @@
 
 require_once __DIR__ . "/ProviderOpenFoodFacts.php";
 require_once __DIR__ . "/ProviderUpcDb.php";
+require_once __DIR__ . "/ProviderJumbo.php";
+require_once __DIR__ . "/ProviderUpcDatabase.php";
+require_once __DIR__ . "/ProviderDebug.php";
+require_once __DIR__ . "/ProviderAlbertHeijn.php";
+require_once __DIR__ . "/ProviderOpengtindb.php";
+require_once __DIR__ . "/ProviderFederation.php";
 
 class LookupProvider {
 
@@ -31,27 +37,60 @@ class LookupProvider {
         $this->apiKey         = $apiKey;
     }
 
-    protected function isProviderEnabled() {
+    /**
+     * @return bool
+     */
+    protected function isProviderEnabled(): bool {
         if ($this->providerConfigKey == null)
             throw new Exception('providerConfigKey needs to be overriden!');
-        return BBConfig::getInstance()[$this->providerConfigKey];
+        return BBConfig::getInstance()[$this->providerConfigKey] == "1";
     }
 
     /**
      * Looks up a barcode
      * @param string $barcode The barcode to lookup
-     * @return null|string         Name of product, null if none found
+     * @return array|null Name of product, null if none found
      * @throws Exception
      */
-    public function lookupBarcode($barcode) {
+    public function lookupBarcode(string $barcode): ?array {
         throw new Exception('lookupBarcode needs to be overriden!');
     }
 
+    /**
+     * Returns the generic or product name, depending what user set in config or if
+     * a product / generic name is available
+     * @param string|null $productName
+     * @param string|null $genericName
+     * @return string|null
+     */
+    public function returnNameOrGenericName(?string $productName, ?string $genericName): ?string {
+        $productName = sanitizeString($productName);
+        $genericName = sanitizeString($genericName);
+        if ($this->useGenericName) {
+            if ($genericName != null)
+                return $genericName;
+            if ($productName != null)
+                return $productName;
+        } else {
+            if ($productName != null)
+                return $productName;
+            if ($genericName != null)
+                return $genericName;
+        }
+        return null;
+    }
 
-    protected function execute($url) {
-        $curl = new CurlGenerator($url, METHOD_GET, null, null, true, $this->ignoredResultCodes);
+    public static function createReturnArray(?string $name, ?string $alternateBBuddyName = null): ?array {
+        if ($name == null)
+            return null;
+        return array("name" => $name, "altNames" => $alternateBBuddyName);
+    }
+
+
+    protected function execute(string $url, string $method = METHOD_GET, array $formdata = null, string $userAgent = null, $headers = null, $decodeJson = true, $jsonData = null) {
+        $curl = new CurlGenerator($url, $method, $jsonData, null, true, $this->ignoredResultCodes, $formdata, $userAgent, $headers);
         try {
-            $result = $curl->execute(true);
+            $result = $curl->execute($decodeJson);
         } catch (Exception $e) {
             $class = get_class($e);
             switch ($class) {

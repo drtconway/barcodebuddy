@@ -15,28 +15,71 @@
  */
 
 
-class ButtonBuilder {
-    private $name              = null;
-    private $id                = null;
-    private $label             = null;
-    private $editorUi          = null;
-    private $onClick           = null;
-    private $isRaised          = false;
-    private $isHidden          = false;
-    private $isColoured        = false;
-    private $isDisabled        = false;
-    private $additionalClasses = null;
-    private $isSubmit          = false;
-    private $value             = null;
-    private $isAccent          = false;
+require_once __DIR__ . "/configProcessing.inc.php";
 
+class ElementBuilder {
+    protected $name = null;
+    protected $label = null;
+    protected $value = null;
+    protected $editorUi = null;
+    protected $spaced = false;
+    protected $scripts = array();
 
-    function __construct($name, $label, $editorUi) {
+    function __construct($name, $label, $value, $editorUi) {
         $this->name     = $name;
-        $this->id       = $name;
         $this->label    = $label;
+        $this->value    = $value;
         $this->editorUi = $editorUi;
     }
+
+    function addScript(?string $script): ElementBuilder {
+        if (empty($script)) {
+            return $this;
+        }
+        array_push($this->scripts, $script);
+        return $this;
+    }
+
+    function addSpaces(): ElementBuilder {
+        $this->spaced = true;
+        return $this;
+    }
+
+    function generate($asHtml = false) {
+        $result = $this->generateInternal() . $this->generateScript();
+        if ($asHtml) {
+            return $result;
+        }
+
+        $this->editorUi->addHtml($result);
+        $this->spaced && $this->editorUi->addSpaces();
+        return $this->editorUi;
+    }
+
+    private function generateScript(): string {
+        $result = "";
+        foreach ($this->scripts as $script) {
+            $result = $result . "\n<script type='application/javascript'>" . $script . "</script>\n";
+        }
+
+        return $result;
+    }
+
+    protected function generateInternal() {
+        throw new Exception('generate needs to be overridden!');
+    }
+}
+
+class ButtonBuilder extends ElementBuilder {
+    private $onClick = null;
+    private $isRaised = false;
+    private $isHidden = false;
+    private $isColoured = false;
+    private $isDisabled = false;
+    private $additionalClasses = null;
+    private $isSubmit = false;
+    private $isAccent = false;
+    private $id = null;
 
     function setId($id) {
         $this->id = $id;
@@ -52,97 +95,118 @@ class ButtonBuilder {
         $this->isRaised = $isRaised;
         return $this;
     }
+
     function setHidden($isHidden = true) {
         $this->isHidden = $isHidden;
         return $this;
     }
 
-    function setIsColoured($isColoured = true) {  
+    function setIsColoured($isColoured = true) {
         $this->isColoured = $isColoured;
         return $this;
     }
-    function setIsAccent($isAccent = true) { 
+
+    function setIsAccent($isAccent = true) {
         $this->isColoured = true;
         $this->isAccent   = $isAccent;
         return $this;
     }
+
     function setDisabled($isDisabled = true) {
         $this->isDisabled = $isDisabled;
         return $this;
     }
+
     function setAdditionalClasses($additionalClasses) {
         $this->additionalClasses = $additionalClasses;
         return $this;
     }
+
     function setSubmit($isSubmit = true) {
         $this->isSubmit = $isSubmit;
         return $this;
     }
+
     function setValue($value) {
         $this->value = $value;
         return $this;
     }
 
-
-    function generate($asHtml = false) {
+    protected function generateInternal() {
         return $this->editorUi->addButton($this->name,
-                                          $this->label,
-                                          $this->onClick,
-                                          $this->isRaised,
-                                          $this->isHidden,
-                                          $asHtml,
-                                          $this->isColoured,
-                                          $this->isDisabled,
-                                          $this->additionalClasses,
-                                          $this->id,
-                                          $this->isSubmit,
-                                          $this->value,
-                                          $this->isAccent);
+            $this->label,
+            $this->onClick,
+            $this->isRaised,
+            $this->isHidden,
+            true,
+            $this->isColoured,
+            $this->isDisabled,
+            $this->additionalClasses,
+            $this->id,
+            $this->isSubmit,
+            $this->value,
+            $this->isAccent);
     }
-
 }
-    
 
-class EditFieldBuilder {
-    //required
-    private $name                      = null;
-    private $label                     = null;
-    private $value                     = null;
-    private $editorUi                  = null;
+class CheckBoxBuilder extends ElementBuilder {
+    private $isDisabled = false;
+    private $useSpaces = true;
+    private $onChanged = null;
 
-    //optional
-    private $pattern                   = null;
-    private $type                      = "text";
-    private $disabled                  = false;
-    private $autocompleteEntries       = null;
-    private $autocompleteEntriesLinked = null;
-    private $autocompleteRunAjax       = false;
-    private $required                  = true;
-    private $minmax                    = null;
-    private $maxlength                 = null;
-    private $minlength                 = null;
-    private $capitalize                = false;
-    private $onfocusout                = null;
-    private $isTimeInput               = false;
-    private $onkeyup                   = null;
-    private $floatingLabel             = true;
-    private $placeHolder               = null;
-    private $onKeyPress                = null;
-    private $width                     = null;
-
-
-
-    function __construct($name, $label, $value, $editorUi) {
-        $this->name     = $name;
-        $this->label    = $label;
-        $this->value    = $value;
-        $this->editorUi = $editorUi;
+    function disabled($disabled) {
+        $this->isDisabled = $disabled;
+        return $this;
     }
+
+    function useSpaces($useSpaces) {
+        $this->useSpaces = $useSpaces;
+        return $this;
+    }
+
+    function onCheckChanged($onCheckChanged, $changeScript = null) {
+        $this->onChanged = $onCheckChanged;
+        return $this->addScript($changeScript);
+    }
+
+    protected function generateInternal() {
+        return $this->editorUi->addCheckBoxInternal(
+            $this->name,
+            $this->label,
+            ($this->value == 1), //Maybe change this to make it more readable / less prone to bugs
+            $this->isDisabled,
+            $this->useSpaces,
+            $this->onChanged,
+            true);
+    }
+}
+
+
+class EditFieldBuilder extends ElementBuilder {
+    private $pattern = null;
+    private $type = "text";
+    private $disabled = false;
+    private $autocompleteEntries = null;
+    private $autocompleteEntriesLinked = null;
+    private $autocompleteRunAjax = false;
+    private $required = true;
+    private $minmax = null;
+    private $maxlength = null;
+    private $minlength = null;
+    private $capitalize = false;
+    private $onfocusout = null;
+    private $isTimeInput = false;
+    private $onkeyup = null;
+    private $floatingLabel = true;
+    private $placeHolder = null;
+    private $onKeyPress = null;
+    private $width = null;
 
     function pattern($pattern) {
         $this->pattern = $pattern;
         return $this;
     }
+
     function type($type) {
         // Max length does not work with "number"
         if ($this->maxlength != null && $type == "number") {
@@ -157,30 +221,36 @@ class EditFieldBuilder {
         }
         return $this;
     }
+
     function disabled($disabled = true) {
         $this->disabled = $disabled;
         return $this;
     }
+
     function autocompleteEntries($autocompleteEntries, $linked = null, $runAjax = false) {
         $this->autocompleteEntries       = $autocompleteEntries;
         $this->autocompleteEntriesLinked = $linked;
         $this->autocompleteRunAjax       = $runAjax;
         return $this;
     }
+
     function required($required) {
         $this->required = $required;
         return $this;
     }
+
     function setDefault($array) {
         if (isset($array[$this->name])) {
             $this->value = $array[$this->name];
         }
         return $this;
     }
+
     function minmax($minmax) {
         $this->minmax = $minmax;
         return $this;
     }
+
     function maxlength($maxlength) {
         $this->maxlength = $maxlength;
         if ($this->type == "number") {
@@ -203,14 +273,17 @@ class EditFieldBuilder {
         }
         return $this;
     }
+
     function capitalize($capitalize = true) {
         $this->capitalize = $capitalize;
         return $this;
     }
+
     function setPlaceholder($placeHolder) {
         $this->placeHolder = $placeHolder;
         return $this;
     }
+
     function onfocusout($onfocusout) {
         $this->onfocusout = $onfocusout;
         return $this;
@@ -220,23 +293,29 @@ class EditFieldBuilder {
         $this->onkeyup = $onkeyup;
         return $this;
     }
+
     function onKeyPress($onKeyPress) {
         $this->onKeyPress = $onKeyPress;
         return $this;
     }
+
     function setFloatingLabel($floatingLabel = false) {
         $this->floatingLabel = $floatingLabel;
         return $this;
     }
 
-    function generate($asHtml = false) {
-        return $this->editorUi->addEditFieldInternal($this->name, $this->label, $this->value, $this->pattern, $this->type, $this->disabled, $this->autocompleteEntries, $this->autocompleteEntriesLinked, $this->autocompleteRunAjax, $this->required, $this->minmax, $this->maxlength, $this->minlength, $this->capitalize, $this->onfocusout, $this->isTimeInput, $this->onkeyup,
-            $this->floatingLabel, $this->placeHolder, $this->onKeyPress, $this->width, $asHtml);
+    protected function generateInternal() {
+        return $this->editorUi->addEditFieldInternal(
+            $this->name, $this->label, $this->value, $this->pattern,
+            $this->type, $this->disabled, $this->autocompleteEntries,
+            $this->autocompleteEntriesLinked, $this->autocompleteRunAjax,
+            $this->required, $this->minmax, $this->maxlength, $this->minlength,
+            $this->capitalize, $this->onfocusout, $this->isTimeInput,
+            $this->onkeyup, $this->floatingLabel, $this->placeHolder, $this->onKeyPress,
+            $this->width, true);
     }
 
 }
-
-
 
 
 class AutoComplete {
@@ -245,7 +324,6 @@ class AutoComplete {
     private $linkedItems = null;
     private $linkedTarget = null;
     private $runAjax = false;
-
 
 
     function __construct($id, $items, $linkedItems = null, $runAjax = false) {
@@ -283,27 +361,30 @@ class UiEditor {
 
 
     function __construct($createForm = true, $onSubmit = null, $formname = null) {
+        global $CONFIG;
         $onSubmitHtml = "";
         if ($onSubmit != null) {
             $onSubmitHtml = "onsubmit=\"$onSubmit\"";
         }
         if ($createForm) {
             if ($formname == null)
-                $name         = 'editform' . rand();
+                $name = 'editform' . rand();
             else
-                $name         =  $formname;
-            $this->htmlOutput = '<div id="' . $name . '"> <form enctype="multipart/form-data" name="' . $name . '" ' . $onSubmitHtml . ' id="' . $name . '_form" method="post" action="' . $_SERVER['PHP_SELF'] . '" >';
+                $name = $formname;
+            $this->htmlOutput = '<div id="' . $name . '"> <form enctype="multipart/form-data" name="' . $name . '" ' . $onSubmitHtml . ' id="' . $name . '_form" method="post" action="' . $CONFIG->getPhpSelfWithBaseUrl() . '" >';
         }
         $this->autoComplete = array();
         $this->checkBoxes   = array();
         $this->createForm   = $createForm;
     }
+
     function buildEditField($name, $label, $value = "") {
         $editor = new EditFieldBuilder($name, $label, $value, $this);
         return $editor;
     }
+
     function buildButton($name, $label) {
-        $editor = new ButtonBuilder($name, $label, $this);
+        $editor = new ButtonBuilder($name, $label, null, $this);
         return $editor;
     }
 
@@ -311,9 +392,36 @@ class UiEditor {
         $this->addHtml($table->getHtml());
     }
 
+    function addCheckBoxInternal($name, $label, $isChecked, $isDisabled = false, $useSpaces = true, $onChanged = "", $asHtml = false) {
+        $disabledHtml = "";
+        $checkedHtml  = "";
+        if ($isDisabled)
+            $disabledHtml = "disabled";
+        if ($isChecked)
+            $checkedHtml = "checked";
+        $html = '<label class="mdl-checkbox mdl-js-checkbox mdl-js-ripple-effect" for="' . $name . '">
+                  <input type="checkbox" 
+                         value="1" 
+                         id="' . $name . '" 
+                         name="' . $name . '" 
+                         onchange="' . $onChanged . '"
+                         class="mdl-checkbox__input" ' . $disabledHtml . ' ' . $checkedHtml . '>
+                  <span class="mdl-checkbox__label">' . $label . '</span>
+                </label><input type="hidden" value="0" name="' . $name . '_hidden"/>';
+
+        if ($asHtml) {
+            return $html;
+        }
+
+        $this->addHtml($html);
+        $useSpaces && $this->addSpaces();
+
+        return $this;
+    }
+
     function addEditFieldInternal($name, $label, $value, $pattern = null, $type = "text", $disabled = false, $autocompleteEntries = null, $autocompleteEntriesLinked = null,
-            $autocompleteRunAjax = false, $required = true, $minmax = null, $maxlength = null, $minlength = null, $capitalize = false, $onfocusout = null, $isTimeInput = false,
-            $onKeyUp = null, $floatingLabel = true, $placeHolder = null, $onKeyPress = null, $width = null, $asHtml = false) {
+                                  $autocompleteRunAjax = false, $required = true, $minmax = null, $maxlength = null, $minlength = null, $capitalize = false, $onfocusout = null, $isTimeInput = false,
+                                  $onKeyUp = null, $floatingLabel = true, $placeHolder = null, $onKeyPress = null, $width = null, $asHtml = false) {
 
         $minmaxHtml = "";
         if ($minmax != null) {
@@ -360,11 +468,11 @@ class UiEditor {
         }
         $onkeyupHtml = "";
         if ($onKeyUp != null) {
-            $onkeyupHtml = 'onKeyUp="'.$onKeyUp.'"';
+            $onkeyupHtml = 'onKeyUp="' . $onKeyUp . '"';
         }
         $onKeyPressHtml = "";
         if ($onKeyPress != null) {
-            $onKeyPressHtml = 'onkeypress="'.$onKeyPress.'"';
+            $onKeyPressHtml = 'onkeypress="' . $onKeyPress . '"';
         }
         $onfocusoutHtml = "";
         if ($onfocusout != null) {
@@ -378,12 +486,12 @@ class UiEditor {
         if ($placeHolder != null) {
             $placeholderHtml = "placeholder=\"$placeHolder\"";
         }
-        $floatingLabelHtml ="";
+        $floatingLabelHtml = "";
         if ($floatingLabel) {
-            $floatingLabelHtml ="mdl-textfield--floating-label";
+            $floatingLabelHtml = "mdl-textfield--floating-label";
         }
-        $result = '<div '.$widthHtml.' class="mdl-textfield mdl-js-textfield '.$floatingLabelHtml .'">
-                <input ' . $onkeyupHtml . ' '. $onKeyPressHtml . ' '. $placeholderHtml . ' ' . $capitalizeHtml . ' ' . $onfocusoutHtml . ' autocomplete="off" class="mdl-textfield__input' . $timeInputHtml . '"  ' . $maxLenghtHtml . ' ' . $minmaxHtml . ' ' . $minLenghtHtml . ' ' . $requiredHtml . ' ' . $disabledHtml . ' ' . $patternHtml . ' value="' . $value . '" type="' . $type . '" name="' . $name . '" id="' . $name . '">
+        $result = '<div ' . $widthHtml . ' class="mdl-textfield mdl-js-textfield ' . $floatingLabelHtml . '">
+                <input ' . $onkeyupHtml . ' ' . $onKeyPressHtml . ' ' . $placeholderHtml . ' ' . $capitalizeHtml . ' ' . $onfocusoutHtml . ' autocomplete="off" class="mdl-textfield__input' . $timeInputHtml . '"  ' . $maxLenghtHtml . ' ' . $minmaxHtml . ' ' . $minLenghtHtml . ' ' . $requiredHtml . ' ' . $disabledHtml . ' ' . $patternHtml . ' value="' . $value . '" type="' . $type . '" name="' . $name . '" id="' . $name . '">
                 <label id="' . $name . '_label" class="mdl-textfield__label" for="' . $name . '">' . $label . '</label>
               </div>';
         if ($asHtml) {
@@ -391,18 +499,21 @@ class UiEditor {
         } else {
             $this->addHtml($result);
             $this->addSpaces();
+            return $this;
         }
     }
+
     function addHiddenField($name, $value, $asHtml = false) {
         $html = '<input type="hidden" id="' . $name . '" value="' . $value . '" name="' . $name . '"/>';
         if ($asHtml) {
             return $html;
-        } else {
-            $this->addHtml($html);
         }
+
+        $this->addHtml($html);
+        return $this;
     }
 
-    function addSelectBox($name, $label, $valueLabels, $values = null, $preselected = null) { //TODO disabled
+    function addSelectBox($name, $label, $valueLabels, $values = null, $preselected = null) {
         if ($values == null) {
             $values = $valueLabels;
         }
@@ -411,7 +522,7 @@ class UiEditor {
                     <input id="' . $name . '_value" type="hidden" value="" name="' . $name . '">
                     <i class="mdl-icon-toggle__label material-icons">keyboard_arrow_down</i>
                     <label for="' . $name . '" class="mdl-textfield__label">' . $label . '</label>
-                    <ul for="' . $name . '" class="mdl-menu mdl-menu--bottom-left mdl-js-menu">');
+                    <ul class="mdl-menu mdl-menu--bottom-left mdl-js-menu">');
         for ($i = 0; $i < count($values); $i++) {
             $preHtml = "";
             if ($preselected !== null && $i == $preselected) {
@@ -431,12 +542,13 @@ class UiEditor {
                     </label>';
         if ($asHtml) {
             return $result;
-        } else {
-            $this->addHtml($result);
-            $this->addSpaces();
         }
+        $this->addHtml($result);
+        $this->addSpaces();
+        return $this;
     }
-    function addCheckbox($name, $label, $isChecked, $isDisabled = false, $useSpaces = true) {
+
+    function addCheckbox($name, $label, $isChecked, $isDisabled = false, $useSpaces = true, $asHtml = false) {
         $checkedHtml = "";
         if ($isChecked) {
             $checkedHtml = "checked";
@@ -445,12 +557,20 @@ class UiEditor {
         if ($isDisabled) {
             $disabledHtml = "disabled";
         }
-        $this->addHtml('<label class="mdl-checkbox mdl-js-checkbox mdl-js-ripple-effect" for="' . $name . '">
-                  <input type="checkbox" value="1" id="' . $name . '" name="' . $name . '" class="mdl-checkbox__input" ' . $disabledHtml . ' ' . $checkedHtml . '>
-                  <span class="mdl-checkbox__label">' . $label . '</span>
-                </label><input type="hidden" value="0" name="' . $name . '_hidden"/>');
+        $result = '<label class="mdl-checkbox mdl-js-checkbox mdl-js-ripple-effect" for="' . $name . '">
+                      <input type="checkbox" value="1" id="' . $name . '" name="' . $name . '" class="mdl-checkbox__input" ' . $disabledHtml . ' ' . $checkedHtml . '>
+                      <span class="mdl-checkbox__label">' . $label . '</span>
+                </label><input type="hidden" value="0" name="' . $name . '_hidden"/>';
+        if ($asHtml) {
+            if ($useSpaces)
+                $result = $result . '&nbsp;&nbsp;';
+            return $result;
+        }
         if ($useSpaces)
             $this->addSpaces();
+
+        $this->addHtml($result);
+        return $this;
     }
 
     function addSubmitButton($name, $label, $isRaised = true, $isDisabled = false, $asHtml = false, $isColoured = true, $onClick = null, $value = null) {
@@ -471,13 +591,13 @@ class UiEditor {
             $raisedHtml = "mdl-button--raised";
         }
 
-        $result = '<button class="fullWidth mdl-button ' . $isColouredHtml . ' ' . $raisedHtml . ' mdl-js-button mdl-js-ripple-effect" ' . $onclickHtml . ' type="submit" name="' . $name . '" id="' . $name . '" '.$valueHtml.'>' . $label . '</button>';
+        $result = '<button class="fullWidth mdl-button ' . $isColouredHtml . ' ' . $raisedHtml . ' mdl-js-button mdl-js-ripple-effect" ' . $onclickHtml . ' type="submit" name="' . $name . '" id="' . $name . '" ' . $valueHtml . '>' . $label . '</button>';
         if ($asHtml) {
             return $result;
-        } else {
-            $this->addHtml($result);
-            $this->addSpaces();
         }
+        $this->addHtml($result);
+        $this->addSpaces();
+        return $this;
     }
 
     function addDiv($htmlToDiv, $id = null, $class = null) {
@@ -506,7 +626,7 @@ class UiEditor {
 
         if ($id == null)
             $id = $name;
-        if ($value == null) 
+        if ($value == null)
             $value = $label;
         $raisedHtml = "";
         if ($isRaised) {
@@ -541,18 +661,20 @@ class UiEditor {
             $type = "submit";
         }
 
-        $result = '<button ' . $hiddenHtml . ' ' . $disabledHtml . ' class="mdl-button mdl-js-button '.$additionalHtml. ' ' . $isColouredHtml . ' ' . $isAccentHtml . ' ' . $raisedHtml . '" id="' . $id . '" name="' . $name .'" ' . $onclickHtml . ' type="'.$type.'"  value="' . $value . '">'.$label.'</button>';
+        $result = '<button ' . $hiddenHtml . ' ' . $disabledHtml . ' class="mdl-button mdl-js-button ' . $additionalHtml . ' ' . $isColouredHtml . ' ' . $isAccentHtml . ' ' . $raisedHtml . '" id="' . $id . '" name="' . $name . '" ' . $onclickHtml . ' type="' . $type . '"  value="' . $value . '">' . $label . '</button>';
 
         if ($asHtml) {
             return $result;
-        } else {
-            $this->addHtml($result);
-            $this->addSpaces();
         }
+        $this->addHtml($result);
+        $this->addSpaces();
+        return $result;
     }
+
     function addErrorMessage($id, $label, $hint) {
         $this->addHtml('<div id="' . $id . '" class="fl-hidden"><br><span style="color:red">' . $label . ' </span><i class="fas fa-question-circle"></i> <span class="tooltiptext">' . $hint . '</span>&nbsp;&nbsp;<br></div>');
     }
+
     function addRadioButton($name, $label, $value, $isChecked = false, $returnAsHtml = false, $isDisabled = false) {
 
         $disabledHtml = "";
@@ -577,27 +699,53 @@ class UiEditor {
                 </label>';
         if ($returnAsHtml) {
             return $html;
-        } else {
-            $this->addHtml($html);
-            $this->addSpaces();
         }
+        $this->addHtml($html);
+        $this->addSpaces();
+        return $this;
     }
+
     function addLineBreak($count = 1) {
         for ($i = 0; $i < $count; $i++) {
             $this->addHtml('<br>');
         }
     }
+
     function addSpaces($count = 2) {
         for ($i = 0; $i < $count; $i++) {
             $this->addHtml('&nbsp;');
         }
     }
+
     function addHtml($html) {
         $this->htmlOutput = $this->htmlOutput . $html . "\n";
     }
+
+    function addListItem($htmlHeader, $htmlBody, $data = "", $asHtml = false) {
+        //Add spaces if there is a checkbox
+        if (strpos($htmlHeader, "mdl-checkbox") !== false) {
+            $htmlBody = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" . $htmlBody;
+        }
+        $result = "<li data-id=\"$data\" class=\"mdl-list__item mdl-list__item--two-line\" data-value=\"$data\"><span class=\"mdl-list__item-primary-content\">" . $htmlHeader . "
+                                                    <span class=\"mdl-list__item-sub-title\">" . $htmlBody . "</span></span></li>\n";
+        if ($asHtml)
+            return $result;
+        else
+            $this->htmlOutput = $this->htmlOutput . $result;
+    }
+
     function addScript($html) {
         $this->htmlOutput = $this->htmlOutput . "\n" . "<script>" . $html . "</script>\n";
     }
+
+    function addScriptFile($file) {
+        $this->htmlOutput = $this->htmlOutput . "\n" . "<script src=\"$file\"></script>\n";
+    }
+
+    static function addTextWrap($text, $maxSize = 12, $minSize = 10) {
+        return '<div style="max-width: ' . $maxSize . 'em; min-width: ' . $minSize . 'em; overflow-wrap: break-word; white-space: normal; overflow: auto;">' . $text . '</div>';
+    }
+
     function getHtml() {
         if ($this->createForm) {
             $result = $this->htmlOutput . '</form></div>';

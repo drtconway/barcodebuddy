@@ -21,21 +21,34 @@ require_once __DIR__ . "/../config.inc.php";
 
 class BarcodeLookup {
 
+    private const USE_DEBUG_PROVIDER = false;
+
+    private static $providers = array(
+        LOOKUP_ID_OPENFOODFACTS => "ProviderOpenFoodFacts",
+        LOOKUP_ID_UPCDB         => "ProviderUpcDb",
+        LOOKUP_ID_UPCDATABASE   => "ProviderUpcDatabase",
+        LOOKUP_ID_ALBERTHEIJN   => "ProviderAlbertHeijn",
+        LOOKUP_ID_JUMBO         => "ProviderJumbo",
+        LOOKUP_ID_OPENGTINDB    => "ProviderOpengtindb",
+        LOOKUP_ID_Federation    => "ProviderFederation"
+    );
+
     /**
      * Look up a barcode using providers
      * @param string $barcode Input barcode
-     * @return string Returns product name or "N/A" if not found
+     * @return array Returns product name array or null if not found
      */
-    public static function lookUp($barcode) {
-
-        $resultOpenFoodFacts = (new ProviderOpenFoodFacts())->lookupBarcode($barcode);
-        if ($resultOpenFoodFacts != null)
-            return $resultOpenFoodFacts;
-
-        $resultUpcDb = (new ProviderUpcDb())->lookupBarcode($barcode);
-        if ($resultUpcDb != null)
-            return $resultUpcDb;
-
-        return "N/A";
+    public static function lookUp(string $barcode): ?array {
+        if (self::USE_DEBUG_PROVIDER) {
+            return (new ProviderDebug)->lookupBarcode($barcode);
+        }
+        $config       = BBConfig::getInstance();
+        $orderAsArray = explode(",", $config["LOOKUP_ORDER"]);
+        foreach ($orderAsArray as $orderId) {
+            $result = (new self::$providers[$orderId]())->lookupBarcode($barcode);
+            if ($result != null)
+                return $result;
+        }
+        return null;
     }
 }

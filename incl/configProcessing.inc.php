@@ -17,8 +17,8 @@
  */
 
 
-const BB_VERSION = "1510";
-const BB_VERSION_READABLE = "1.5.1.0";
+const BB_VERSION          = "1802";
+const BB_VERSION_READABLE = "1.8.0.2";
 
 const CONFIG_PATH = __DIR__ . '/../data/config.php';
 const AUTHDB_PATH = __DIR__ . '/../data/users.db';
@@ -29,8 +29,6 @@ checkForMissingConstants();
 global $CONFIG;
 $CONFIG = new GlobalConfig();
 $CONFIG->configureDebugOutput();
-//For debugging:
-//$CONFIG->echoConfig();
 
 
 function loadConfigPhp() {
@@ -60,25 +58,26 @@ function createConfigPhp($configPath) {
 
 function checkForMissingConstants() {
     $defaultValues = array(
-                        "PORT_WEBSOCKET_SERVER"        => 47631,
-                        "DATABASE_PATH"                => __DIR__ . '/../data/barcodebuddy.db',
-                        "CONFIG_PATH"                  => CONFIG_PATH,
-                        "AUTHDB_PATH"                  => AUTHDB_PATH,
-                        "CURL_TIMEOUT_S"               => 20,
-                        "CURL_ALLOW_INSECURE_SSL_CA"   => false,
-                        "CURL_ALLOW_INSECURE_SSL_HOST" => false,
-                        "IS_DOCKER"                    => false,
-                        "REQUIRE_API_KEY"              => true,
-                        "IS_DEBUG"                     => false,
-                        "DISABLE_AUTHENTICATION"       => false,
-                        "HIDE_LINK_GROCY"              => false,
-                        "HIDE_LINK_SCREEN"             => false,
-                        "EXTERNAL_GROCY_URL"           => null,
-                        "OVERRIDDEN_USER_CONFIG"       => array(),
-                        "AUTHENTICATION_BYPASS_NETS"   => array(),
-                        "TRUSTED_PROXIES"              => array(),
-                        "SEARCH_ENGINE"                => "http://google.com/search?q="
-                        );
+        "PORT_WEBSOCKET_SERVER"        => 47631,
+        "DATABASE_PATH"                => __DIR__ . '/../data/barcodebuddy.db',
+        "CONFIG_PATH"                  => CONFIG_PATH,
+        "AUTHDB_PATH"                  => AUTHDB_PATH,
+        "CURL_TIMEOUT_S"               => 20,
+        "CURL_ALLOW_INSECURE_SSL_CA"   => false,
+        "CURL_ALLOW_INSECURE_SSL_HOST" => false,
+        "IS_DOCKER"                    => false,
+        "REQUIRE_API_KEY"              => true,
+        "IS_DEBUG"                     => false,
+        "DISABLE_AUTHENTICATION"       => false,
+        "HIDE_LINK_GROCY"              => false,
+        "HIDE_LINK_SCREEN"             => false,
+        "EXTERNAL_GROCY_URL"           => null,
+        "OVERRIDDEN_USER_CONFIG"       => array(),
+        "AUTHENTICATION_BYPASS_NETS"   => array(),
+        "TRUSTED_PROXIES"              => array(),
+        "SEARCH_ENGINE"                => "http://google.com/search?q=",
+        "BASEURL"                      => "/"
+    );
     foreach ($defaultValues as $key => $value) {
         if (!defined($key))
             define($key, $value);
@@ -87,27 +86,32 @@ function checkForMissingConstants() {
 
 
 class GlobalConfig {
-    public $PORT_WEBSOCKET_SERVER        = PORT_WEBSOCKET_SERVER;
-    public $DATABASE_PATH                = DATABASE_PATH;
-    public $CONFIG_PATH                  = CONFIG_PATH;
-    public $AUTHDB_PATH                  = AUTHDB_PATH;
-    public $CURL_TIMEOUT_S               = CURL_TIMEOUT_S;
-    public $CURL_ALLOW_INSECURE_SSL_CA   = CURL_ALLOW_INSECURE_SSL_CA;
+    public $PORT_WEBSOCKET_SERVER = PORT_WEBSOCKET_SERVER;
+    public $DATABASE_PATH = DATABASE_PATH;
+    public $CONFIG_PATH = CONFIG_PATH;
+    public $AUTHDB_PATH = AUTHDB_PATH;
+    public $CURL_TIMEOUT_S = CURL_TIMEOUT_S;
+    public $CURL_ALLOW_INSECURE_SSL_CA = CURL_ALLOW_INSECURE_SSL_CA;
     public $CURL_ALLOW_INSECURE_SSL_HOST = CURL_ALLOW_INSECURE_SSL_HOST;
-    public $IS_DOCKER                    = IS_DOCKER;
-    public $REQUIRE_API_KEY              = REQUIRE_API_KEY;
-    public $IS_DEBUG                     = IS_DEBUG;
-    public $OVERRIDDEN_USER_CONFIG       = OVERRIDDEN_USER_CONFIG;
-    public $DISABLE_AUTHENTICATION       = DISABLE_AUTHENTICATION;
-    public $HIDE_LINK_GROCY              = HIDE_LINK_GROCY;
-    public $HIDE_LINK_SCREEN             = HIDE_LINK_SCREEN;
-    public $EXTERNAL_GROCY_URL           = EXTERNAL_GROCY_URL;
-    public $AUTHENTICATION_BYPASS_NETS   = AUTHENTICATION_BYPASS_NETS;
-    public $TRUSTED_PROXIES              = TRUSTED_PROXIES;
-    public $SEARCH_ENGINE                = SEARCH_ENGINE;
+    public $IS_DOCKER = IS_DOCKER;
+    public $REQUIRE_API_KEY = REQUIRE_API_KEY;
+    public $IS_DEBUG = IS_DEBUG;
+    public $OVERRIDDEN_USER_CONFIG = OVERRIDDEN_USER_CONFIG;
+    public $DISABLE_AUTHENTICATION = DISABLE_AUTHENTICATION;
+    public $HIDE_LINK_GROCY = HIDE_LINK_GROCY;
+    public $HIDE_LINK_SCREEN = HIDE_LINK_SCREEN;
+    public $EXTERNAL_GROCY_URL = EXTERNAL_GROCY_URL;
+    public $AUTHENTICATION_BYPASS_NETS = AUTHENTICATION_BYPASS_NETS;
+    public $TRUSTED_PROXIES = TRUSTED_PROXIES;
+    public $SEARCH_ENGINE = SEARCH_ENGINE;
+    public $BASEURL = BASEURL;
 
     function __construct() {
         $this->loadConfig();
+    }
+
+    function getPhpSelfWithBaseUrl() {
+        return rtrim($this->BASEURL, "/") . $_SERVER['PHP_SELF'];
     }
 
     //Gets all the public variables declared above and checks if there
@@ -120,7 +124,7 @@ class GlobalConfig {
         foreach ($props as $prop) {
 
             $variableName = $prop->getName();
-            $variable =& $this->{$variableName};
+            $variable     =& $this->{$variableName};
 
             $configString = 'BBUDDY_' . $variableName;
             if (isset($environmentVariables[$configString])) {
@@ -130,7 +134,7 @@ class GlobalConfig {
             }
         }
     }
-    
+
     static private function convertCorrectType($input, $originalVar) {
         if (!is_array($originalVar)) {
             $variableType = gettype($originalVar);
@@ -141,7 +145,7 @@ class GlobalConfig {
             return self::convertToArray($input);
 
     }
-    
+
     //PHP converts String "false" to true...
     static private function convertPossibleBoolean($input) {
         if ($input === "true")
@@ -150,8 +154,8 @@ class GlobalConfig {
             return false;
         return $input;
     }
-    
-    static private function convertToArray($input) {
+
+    static private function convertToArray($input): array {
         $result          = array();
         $passedArguments = explode(";", $input);
         foreach ($passedArguments as $argument) {
@@ -163,22 +167,6 @@ class GlobalConfig {
         return $result;
     }
 
-    
-    function echoConfig() {
-        $environmentVariables = getenv();
-        $reflect              = new ReflectionClass($this);
-        $props                = $reflect->getProperties(ReflectionProperty::IS_PUBLIC);
-        foreach ($props as $prop) {
-
-            $variableName = $prop->getName();
-            $variable =& $this->{$variableName};
-
-            echo $variableName . ": ";
-            var_dump($variable);
-            echo "\n";
-        }
-    }
-
     public function configureDebugOutput() {
         //Enable debug as well if file "debug" exists in this directory
         if ($this->IS_DEBUG || file_exists(__DIR__ . "/debug")) {
@@ -188,7 +176,7 @@ class GlobalConfig {
         }
     }
 
-    public function checkIfAuthenticated($redirect = true, $ismenu = false) {
+    public function checkIfAuthenticated($redirect = true, $ismenu = false): bool {
         global $auth;
         require_once __DIR__ . '/authentication/authentication.inc.php';
 
@@ -198,10 +186,10 @@ class GlobalConfig {
 
         // If authentication is at all enabled, ensure the user has completed first-time setup
         if (!isUserSetUp()) {
-             if ($redirect) {
-                $location = "login.php";
+            if ($redirect) {
+                $location = "./login.php";
                 if ($ismenu)
-                $location = "../login.php";
+                    $location = "../login.php";
                 header("Location: $location");
                 die();
             } else
@@ -212,16 +200,18 @@ class GlobalConfig {
         $ip = $this->getIpAddress();
         if ($ip) {
             // Check if any trusted subnets match the client IP
-            $trusted_subnet = array_filter($this->AUTHENTICATION_BYPASS_NETS, function($subnet) use ($ip) {return $this->ipInSubnet($ip, $subnet);});
+            $trusted_subnet = array_filter($this->AUTHENTICATION_BYPASS_NETS, function ($subnet) use ($ip) {
+                return $this->ipInSubnet($ip, $subnet);
+            });
 
             // if any subnet matches, bypass authentication
-            if(sizeof($trusted_subnet) > 0)
+            if (sizeof($trusted_subnet) > 0)
                 return true;
         }
 
         $isLoggedIn = $auth->isLoggedIn();
         if (!$isLoggedIn && $redirect) {
-            $location = "login.php";
+            $location = "./login.php";
             if ($ismenu)
                 $location = "../login.php";
             header("Location: $location");
@@ -229,7 +219,7 @@ class GlobalConfig {
         } else
             return $isLoggedIn;
     }
-    
+
     /**
      * Returns client IP address.
      *
@@ -242,9 +232,10 @@ class GlobalConfig {
         }
 
         // Check if using a trusted proxy
-        $proxy_trusted = array_filter($this->TRUSTED_PROXIES, function($subnet) {
-            return $this->ipInSubnet($_SERVER['REMOTE_ADDR'], $subnet);});
-        if(sizeof($proxy_trusted) == 0) {
+        $proxy_trusted = array_filter($this->TRUSTED_PROXIES, function ($subnet) {
+            return $this->ipInSubnet($_SERVER['REMOTE_ADDR'], $subnet);
+        });
+        if (sizeof($proxy_trusted) == 0) {
             // Remote address is not a proxy, use this as the client's IP
             return $_SERVER['REMOTE_ADDR'];
         }
@@ -274,24 +265,24 @@ class GlobalConfig {
         $ip = array_pop($ips);
         return $ip;
     }
-    
-    private function ipInSubnet($ip, $subnet) {
+
+    private function ipInSubnet($ip, $subnet): bool {
         $subnetComponents = explode("/", $subnet);
-        $subnetAddress = $subnetComponents[0];
+        $subnetAddress    = $subnetComponents[0];
 
         if (sizeof($subnetComponents) == 2) {
             // Subnet is a full network
             $subnetMask = $subnetComponents[1];
 
-            if(filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && filter_var($subnetAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && filter_var($subnetAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
                 // IP and Subnet are both IPv4
                 // Convert IP and subnet to integers
-                $ip = ip2long($ip);
+                $ip            = ip2long($ip);
                 $subnetAddress = ip2long($subnetAddress);
 
                 // Trim both addresses to match the mask
-                $mask = -1 << (32 - $subnetMask);
-                $ip &= $mask;
+                $mask          = -1 << (32 - $subnetMask);
+                $ip            &= $mask;
                 $subnetAddress &= $mask;
 
                 // Compare the remaining addresses
@@ -300,16 +291,16 @@ class GlobalConfig {
             } else if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) && filter_var($subnetAddress, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
                 // IP and Subnet are both IPv6
                 // Convert IP to raw bits
-                $ip = inet_pton($ip);
+                $ip       = inet_pton($ip);
                 $binaryIp = $this->inet_to_bits($ip);
 
                 // convert subnet to raw bits
                 $subnetAddress = inet_pton($subnetAddress);
-                $binarySubnet = $this->inet_to_bits($subnetAddress);
+                $binarySubnet  = $this->inet_to_bits($subnetAddress);
 
                 // Trim both addresses to match the mask
                 $ip_net_bits = substr($binaryIp, 0, $subnetMask);
-                $net_bits = substr($binarySubnet, 0, $subnetMask);
+                $net_bits    = substr($binarySubnet, 0, $subnetMask);
 
                 // Compare the remaining addresses
                 return $ip_net_bits == $net_bits;
@@ -322,9 +313,13 @@ class GlobalConfig {
             return $ip == $subnetAddress;
         }
     }
-    
-    // IPv6 address to list of bits.
-    private function inet_to_bits($inet) {
+
+    /**
+     * IPv6 address to list of bits
+     * @param $inet
+     * @return string
+     */
+    private function inet_to_bits($inet): string {
         $unpacked = unpack('A16', $inet);
         $unpacked = str_split($unpacked[1]);
         $binaryip = '';

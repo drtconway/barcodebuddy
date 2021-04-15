@@ -41,13 +41,16 @@ $webUi->addHeader();
 $webUi->addCard("General Settings", getHtmlSettingsGeneral());
 $webUi->addCard("Barcode Lookup Providers", getHtmlSettingsBarcodeLookup());
 $webUi->addCard("Grocy API", getHtmlSettingsGrocyApi());
+$webUi->addCard("Redis Cache", getHtmlSettingsRedis());
 $webUi->addCard("Websocket Server Status", getHtmlSettingsWebsockets());
 $webUi->addFooter();
 $webUi->printHtml();
 
 
-//Called when settings were saved. For each input, the setting
-//is saved as a database entry
+/**
+ * Called when settings were saved. For each input, the setting
+ * is saved as a database entry
+ */
 function saveSettings() {
     $db     = DatabaseConnection::getInstance();
     $config = BBConfig::getInstance();
@@ -70,7 +73,10 @@ function saveSettings() {
 }
 
 
-function getHtmlSettingsGeneral() {
+/**
+ * @return string
+ */
+function getHtmlSettingsGeneral(): string {
     $config = BBConfig::getInstance();
     $html   = new UiEditor(true, null, "settings1");
     $html->addHtml('<div class="flex-settings">');
@@ -108,7 +114,10 @@ function getHtmlSettingsGeneral() {
 }
 
 
-function getHtmlSettingsGrocyApi() {
+/**
+ * @return string
+ */
+function getHtmlSettingsGrocyApi(): string {
     $config = BBConfig::getInstance();
     $html   = new UiEditor(true, null, "settings2");
     $html->buildEditField('GROCY_API_URL', 'Grocy API URL', $config["GROCY_API_URL"])
@@ -123,17 +132,113 @@ function getHtmlSettingsGrocyApi() {
     return $html->getHtml();
 }
 
-function getHtmlSettingsBarcodeLookup() {
+/**
+ * @return string
+ */
+function getHtmlSettingsBarcodeLookup(): string {
     $config = BBConfig::getInstance();
     $html   = new UiEditor(true, null, "settings3");
-    $html->addCheckbox('LOOKUP_USE_OFF', 'Use OpenFoodFacts.org', $config["LOOKUP_USE_OFF"]);
+    $html->addScriptFile("../incl/js/Sortable.min.js");
+    $html->addHtml("Use Drag&amp;Drop for changing lookup order");
+    $html->addHtml('<ul class="demo-list-item mdl-list" id="providers">');
+
+    $providerList = getProviderListItems($html);
+    $orderAsArray = explode(",", $config["LOOKUP_ORDER"]);
+    foreach ($orderAsArray as $orderId) {
+        $html->addHtml($providerList["id" . $orderId]);
+    }
+
+
+    $html->addHtml('</ul>');
     $html->addLineBreak();
-    $html->addCheckbox('LOOKUP_USE_UPC', 'Use UPCitemDB.com', $config["LOOKUP_USE_UPC"]);
+    $html->addHtml((new EditFieldBuilder(
+        'LOOKUP_UPC_DATABASE_KEY',
+        'UPCDatabase.org API Key',
+        $config["LOOKUP_UPC_DATABASE_KEY"],
+        $html))
+        ->required($config["LOOKUP_USE_UPC_DATABASE"])
+        ->pattern('[A-Za-z0-9]{32}')
+        ->disabled(!$config["LOOKUP_USE_UPC_DATABASE"])
+        ->generate(true)
+    );
+    $html->addLineBreak();
+    $html->addHtml((new EditFieldBuilder(
+        'LOOKUP_OPENGTIN_KEY',
+        'OpenGtinDb.org API Key',
+        $config["LOOKUP_OPENGTIN_KEY"],
+        $html))
+        ->required($config["LOOKUP_USE_OPEN_GTIN_DATABASE"])
+        ->pattern('[^%]{3,}')
+        ->disabled(!$config["LOOKUP_USE_OPEN_GTIN_DATABASE"])
+        ->generate(true)
+    );
+
+    $html->addHiddenField("LOOKUP_ORDER", $config["LOOKUP_ORDER"]);
+
+    $html->addScript("var elements = document.getElementById('providers');
+                           var sortable = Sortable.create(elements, { animation: 150,
+                                    dataIdAttr: 'data-id',
+                                    onSort: function (evt) {
+                                       document.getElementById('LOOKUP_ORDER').value = sortable.toArray().join();
+                                    },});");
+
     return $html->getHtml();
 }
 
+function generateApiKeyChangeScript(string $functionName, string $keyId): string {
+    return "function " . $functionName . "(element) {
+                apiEditField = document.getElementById('" . $keyId . "');
+                if (!apiEditField) {
+                    console.warn('Unable to find element " . $keyId . "');
+                } else {
+                    apiEditField.required = element.checked;
+                    if (element.checked) {
+                        apiEditField.parentNode.MaterialTextfield.enable();
+                    } else {
+                        apiEditField.parentNode.MaterialTextfield.disable();
+                    }
+                }
+            }";
+}
 
-function checkGrocyConnection() {
+function getProviderListItems(UiEditor $html): array {
+    $config                                 = BBConfig::getInstance();
+    $result                                 = array();
+    $result["id" . LOOKUP_ID_OPENFOODFACTS] = $html->addListItem($html->addCheckbox('LOOKUP_USE_OFF', 'Open Food Facts', $config["LOOKUP_USE_OFF"], false, false, true), "Uses OpenFoodFacts.org", LOOKUP_ID_OPENFOODFACTS, true);
+    $result["id" . LOOKUP_ID_UPCDB]         = $html->addListItem($html->addCheckbox('LOOKUP_USE_UPC', 'UPC Item DB', $config["LOOKUP_USE_UPC"], false, false, true), "Uses UPCitemDB.com", LOOKUP_ID_UPCDB, true);
+    $result["id" . LOOKUP_ID_ALBERTHEIJN]   = $html->addListItem($html->addCheckbox('LOOKUP_USE_AH', 'Albert Heijn', $config["LOOKUP_USE_AH"], false, false, true), "Uses AH.nl", LOOKUP_ID_ALBERTHEIJN, true);
+    $result["id" . LOOKUP_ID_JUMBO]         = $html->addListItem($html->addCheckbox('LOOKUP_USE_JUMBO', 'Jumbo', $config["LOOKUP_USE_JUMBO"], false, false, true), "Uses Jumbo.com (slow)", LOOKUP_ID_JUMBO, true);
+    $result["id" . LOOKUP_ID_UPCDATABASE]   = $html->addListItem((new CheckBoxBuilder(
+        "LOOKUP_USE_UPC_DATABASE",
+        "UPC Database",
+        $config["LOOKUP_USE_UPC_DATABASE"],
+        $html)
+    )->onCheckChanged(
+        "handleUPCDBChange(this)",
+        generateApiKeyChangeScript("handleUPCDBChange", "LOOKUP_UPC_DATABASE_KEY"))
+        ->generate(true), "Uses UPCDatabase.org", LOOKUP_ID_UPCDATABASE, true);
+
+    $result["id" . LOOKUP_ID_OPENGTINDB] = $html->addListItem((new CheckBoxBuilder(
+        "LOOKUP_USE_OPEN_GTIN_DATABASE",
+        "Open EAN / GTIN Database",
+        $config["LOOKUP_USE_OPEN_GTIN_DATABASE"],
+        $html)
+    )->onCheckChanged(
+        "handleOpenGtinChange(this)",
+        generateApiKeyChangeScript("handleOpenGtinChange", "LOOKUP_OPENGTIN_KEY"))
+        ->generate(true), "Uses OpenGtinDb.org", LOOKUP_ID_OPENGTINDB, true);
+    $bbServerSubtitle                    = "Uses " . BarcodeFederation::HOST_READABLE;
+    if (!$config["BBUDDY_SERVER_ENABLED"])
+        $bbServerSubtitle = "Enable Federation for this feature";
+    $result["id" . LOOKUP_ID_Federation] = $html->addListItem($html->addCheckbox('LOOKUP_USE_BBUDDY_SERVER', 'Barcode Buddy Federation', $config["LOOKUP_USE_BBUDDY_SERVER"], !$config["BBUDDY_SERVER_ENABLED"], false, true), $bbServerSubtitle, LOOKUP_ID_Federation, true);
+    return $result;
+}
+
+
+/**
+ * @return string
+ */
+function checkGrocyConnection(): string {
     $config = BBConfig::getInstance();
     $result = API::checkApiConnection($config["GROCY_API_URL"], $config["GROCY_API_KEY"]);
     if ($result === true) {
@@ -143,8 +248,22 @@ function checkGrocyConnection() {
     }
 }
 
+function checkRedisConnection(UiEditor &$html) {
+    if (!RedisConnection::isRedisAvailable()) {
+        $error = RedisConnection::getErrorMessage();
+        $html->addHtml('<span style="color:red">Cannot connect to Rediscache! ' . $error . '</span>');
+    } else {
+        $html->addHtml('<span style="color:green">Redis cache is available.</span>');
+        $html->addSpaces(4);
+        $html->addButton("updatecache", "Update Cache", "updateRedisCacheAndFederation(true)");
+    }
+}
 
-function getHtmlSettingsWebsockets() {
+
+/**
+ * @return string
+ */
+function getHtmlSettingsWebsockets(): string {
     global $CONFIG;
     $sp = websocket_open('localhost', $CONFIG->PORT_WEBSOCKET_SERVER, '', $errorstr, 5);
     if ($sp !== false) {
@@ -152,4 +271,26 @@ function getHtmlSettingsWebsockets() {
     } else {
         return '<span style="color:red">Websocket server is not running! ' . $errorstr . '</span>';
     }
+}
+
+/**
+ * @return string
+ */
+function getHtmlSettingsRedis(): string {
+    $config = BBConfig::getInstance();
+    $html   = new UiEditor(true, null, "settings4");
+    $html->addCheckbox("USE_REDIS", "Use Redis cache", $config["USE_REDIS"], false, false);
+    $html->addLineBreak(1);
+    $html->buildEditField('REDIS_IP', 'Redis Server IP', $config["REDIS_IP"])
+        ->setPlaceholder('e.g. 127.0.0.1')
+        ->generate();
+    $html->buildEditField('REDIS_PORT', 'Redis Server Port', $config["REDIS_PORT"])
+        ->setPlaceholder('e.g. 6379')
+        ->pattern('^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')
+        ->generate();
+    if ($config["USE_REDIS"]) {
+        $html->addLineBreak(2);
+        checkRedisConnection($html);
+    }
+    return $html->getHtml();
 }

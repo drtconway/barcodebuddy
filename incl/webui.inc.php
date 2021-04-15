@@ -16,7 +16,7 @@
 
 /**
  * functions for web ui
- * 
+ *
  * @author     Marc Ole Bulling
  * @copyright  2019 Marc Ole Bulling
  * @license    https://www.gnu.org/licenses/gpl-3.0.en.html  GNU GPL v3.0
@@ -29,12 +29,12 @@ require_once __DIR__ . "/configProcessing.inc.php";
 require_once __DIR__ . "/uiEditor.inc.php";
 require_once __DIR__ . "/config.inc.php";
 
-const MENU_GENERIC = 0;
-const MENU_MAIN = 1;
-const MENU_SETUP = 2;
+const MENU_GENERIC  = 0;
+const MENU_MAIN     = 1;
+const MENU_SETUP    = 2;
 const MENU_SETTINGS = 3;
-const MENU_ERROR = 4;
-const MENU_LOGIN = 5;
+const MENU_ERROR    = 4;
+const MENU_LOGIN    = 5;
 
 
 class MenuItemLink {
@@ -44,7 +44,7 @@ class MenuItemLink {
     public $itemId;
 
     function __construct() {
-        $this->itemId = 'btn'.rand();
+        $this->itemId = 'btn' . rand();
         return $this;
     }
 
@@ -57,6 +57,7 @@ class MenuItemLink {
         $this->itemLink = $link;
         return $this;
     }
+
     public function setId($id) {
         $this->itemId = $id;
         return $this;
@@ -65,28 +66,29 @@ class MenuItemLink {
 
 
 class WebUiGenerator {
-    private $htmlOutput      = "";
-    private $menu            = MENU_GENERIC;
-    
-    function __construct($menu) {
+    private $htmlOutput = "";
+    private $menu = MENU_GENERIC;
+
+    public function __construct($menu) {
         $this->menu = $menu;
     }
 
 
-    function addHtml($html) {
+    public function addHtml($html) {
         $this->htmlOutput = $this->htmlOutput . $html;
     }
-    function addScript($js) {
-        $this->htmlOutput = $this->htmlOutput ."<script>".$js."</script>";
+
+    public function addScript($js) {
+        $this->htmlOutput = $this->htmlOutput . "<script>" . $js . "</script>";
     }
 
 
-    function printHtml() {
+    public function printHtml() {
         echo $this->htmlOutput;
     }
-    
 
-    function addCard($title, $html, $links = null) {
+
+    public function addCard($title, $html, $links = null) {
         $this->addHtml('
         <section class="section--center mdl-grid--no-spacing mdl-grid mdl-shadow--2dp">
             <div class="mdl-card mdl-cell  mdl-cell--12-col">
@@ -101,24 +103,24 @@ class WebUiGenerator {
                 $linkArray[0] = $links;
             else
                 $linkArray = $links;
-            
-                $id = $linkArray[0]->itemId;
-                $this->addHtml('<button class="mdl-button mdl-js-button mdl-js-ripple-effect mdl-button--icon" id="' . $id . '">
+
+            $id = $linkArray[0]->itemId;
+            $this->addHtml('<button class="mdl-button mdl-js-button mdl-js-ripple-effect mdl-button--icon" id="' . $id . '">
                   <i class="material-icons">more_vert</i>
                 </button>
                 <ul class="mdl-menu mdl-js-menu mdl-menu--bottom-right" for="' . $id . '">');
 
             foreach ($linkArray as $link) {
-                  $this->addHtml('<li class="mdl-menu__item" onclick="' . $link->itemLink . '">' . $link->itemText . '</li>');
+                $this->addHtml('<li class="mdl-menu__item" onclick="' . $link->itemLink . '">' . $link->itemText . '</li>');
             }
             $this->addHtml('</ul>');
         }
         $this->addHtml('</section>');
     }
 
-    function addHeader($additionalHeader = null) {
+    public function addHeader($additionalHeader = null, $enableDialogs = false) {
         global $CONFIG;
-        
+
         if ($this->menu == MENU_SETTINGS || $this->menu === MENU_GENERIC) {
             $folder = "../";
         } else {
@@ -130,7 +132,7 @@ class WebUiGenerator {
             $indexfile = "login.php";
         } else {
             $indexfile = "index.php";
-          }
+        }
         $this->addHtml('<!doctype html>
     <html lang="en">
       <head>
@@ -139,38 +141,53 @@ class WebUiGenerator {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
         <title>Barcode Buddy</title>
 
-        <link rel="apple-touch-icon" sizes="57x57" href="'.$folder.'incl/img/favicon/apple-icon-57x57.png">
-        <link rel="apple-touch-icon" sizes="60x60" href="'.$folder.'incl/img/favicon/apple-icon-60x60.png">
-        <link rel="apple-touch-icon" sizes="72x72" href="'.$folder.'incl/img/favicon/apple-icon-72x72.png">
-        <link rel="apple-touch-icon" sizes="76x76" href="'.$folder.'incl/img/favicon/apple-icon-76x76.png">
-        <link rel="apple-touch-icon" sizes="114x114" href="'.$folder.'incl/img/favicon/apple-icon-114x114.png">
-        <link rel="apple-touch-icon" sizes="120x120" href="'.$folder.'incl/img/favicon/apple-icon-120x120.png">
-        <link rel="apple-touch-icon" sizes="144x144" href="'.$folder.'incl/img/favicon/apple-icon-144x144.png">
-        <link rel="apple-touch-icon" sizes="152x152" href="'.$folder.'incl/img/favicon/apple-icon-152x152.png">
-        <link rel="apple-touch-icon" sizes="180x180" href="'.$folder.'incl/img/favicon/apple-icon-180x180.png">
-        <link rel="icon" type="image/png" sizes="192x192"  href="'.$folder.'incl/img/favicon/android-icon-192x192.png">
-        <link rel="icon" type="image/png" sizes="32x32" href="'.$folder.'incl/img/favicon/favicon-32x32.png">
-        <link rel="icon" type="image/png" sizes="96x96" href="'.$folder.'incl/img/favicon/favicon-96x96.png">
-        <link rel="icon" type="image/png" sizes="16x16" href="'.$folder.'incl/img/favicon/favicon-16x16.png">
-        <meta name="msapplication-TileImage" content="'.$folder.'incl/img/favicon/ms-icon-144x144.png">
+        <link rel="apple-touch-icon" sizes="57x57" href="' . $folder . 'incl/img/favicon/apple-icon-57x57.png">
+        <link rel="apple-touch-icon" sizes="60x60" href="' . $folder . 'incl/img/favicon/apple-icon-60x60.png">
+        <link rel="apple-touch-icon" sizes="72x72" href="' . $folder . 'incl/img/favicon/apple-icon-72x72.png">
+        <link rel="apple-touch-icon" sizes="76x76" href="' . $folder . 'incl/img/favicon/apple-icon-76x76.png">
+        <link rel="apple-touch-icon" sizes="114x114" href="' . $folder . 'incl/img/favicon/apple-icon-114x114.png">
+        <link rel="apple-touch-icon" sizes="120x120" href="' . $folder . 'incl/img/favicon/apple-icon-120x120.png">
+        <link rel="apple-touch-icon" sizes="144x144" href="' . $folder . 'incl/img/favicon/apple-icon-144x144.png">
+        <link rel="apple-touch-icon" sizes="152x152" href="' . $folder . 'incl/img/favicon/apple-icon-152x152.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="' . $folder . 'incl/img/favicon/apple-icon-180x180.png">
+        <link rel="icon" type="image/png" sizes="192x192"  href="' . $folder . 'incl/img/favicon/android-icon-192x192.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="' . $folder . 'incl/img/favicon/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="96x96" href="' . $folder . 'incl/img/favicon/favicon-96x96.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="' . $folder . 'incl/img/favicon/favicon-16x16.png">
+        <meta name="msapplication-TileImage" content="' . $folder . 'incl/img/favicon/ms-icon-144x144.png">
         <meta name="msapplication-navbutton-color" content="#3f51b5">
         <meta name="msapplication-TileColor" content="#3f51b5">
         <meta name="apple-mobile-web-app-status-bar-style" content="#3f51b5">
         <meta name="theme-color" content="#3f51b5">
 
 
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:regular,bold,italic,thin,light,bolditalic,black,medium&amp;lang=en">
-        <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-        <link rel="stylesheet" href="' . $folder . 'incl/css/material.indigo-blue.min.css">
-        <link rel="stylesheet" href="' . $folder . 'incl/css/main.css">');
+        <style>
+        /* roboto-regular - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+        @font-face {
+          font-family: "Roboto";
+          font-style: normal;
+          font-weight: 400;
+          src: local(""),
+               url(' . $folder . 'incl/fonts/roboto-v20-vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic-regular.woff2) format("woff2"), /* Chrome 26+, Opera 23+, Firefox 39+ */
+               url(' . $folder . 'incl/fonts/roboto-v20-vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic-regular.woff) format("woff"); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+        }
+        </style>' . self::getIcons($folder) . '
+        <link rel="stylesheet" href="' . $folder . 'incl/css/material.indigo-blue.min.css?v=' . BB_VERSION . '">
+        <link rel="stylesheet" href="' . $folder . 'incl/css/main.css?v=' . BB_VERSION . '"> ');
         if ($additionalHeader != null) {
             $this->addHtml($additionalHeader);
         }
+        if ($enableDialogs) {
+            $this->addHtml(' <link rel="stylesheet" href="' . $folder . 'incl/css/bootstrap.min.css?v=' . BB_VERSION . '">
+                                 <script src="' . $folder . 'incl/js/jquery-3.5.1.slim.min.js?v=' . BB_VERSION . '"></script>
+                                 <script src="' . $folder . 'incl/js/bootstrap.bundle.min.js?v=' . BB_VERSION . '"></script>
+                                 <script src="' . $folder . 'incl/js/bootbox.min.js?v=' . BB_VERSION . '"></script>');
+        }
 
-      $this->addHtml('</head>
+        $this->addHtml('</head>
 
      <body class="mdl-demo mdl-color--grey-100 mdl-color-text--grey-700 mdl-base">
-     <script src="'. $folder . 'incl/js/scripts_top.js"></script>
+     <script src="' . $folder . 'incl/js/scripts_top.js?v=' . BB_VERSION . '"></script>
 
     <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header">
       <header class="mdl-layout__header">
@@ -199,19 +216,21 @@ class WebUiGenerator {
           <a class="mdl-navigation__link" href="' . $folder . 'menu/quantities.php">Quantities</a>
           <a class="mdl-navigation__link" href="' . $folder . 'menu/chores.php">Chores</a>
           <a class="mdl-navigation__link" href="' . $folder . 'menu/tags.php">Tags</a>
-          <a class="mdl-navigation__link" href="' . $folder . 'menu/apimanagement.php">API</a>');
-        if (!$CONFIG->DISABLE_AUTHENTICATION) {
-            $this->addHtml('
+          <a class="mdl-navigation__link" href="' . $folder . 'menu/apimanagement.php">API</a>
+          <a class="mdl-navigation__link" href="' . $folder . 'menu/federation.php">Federation</a>');
+            if (!$CONFIG->DISABLE_AUTHENTICATION) {
+                $this->addHtml('
              <a class="mdl-navigation__link" href="' . $folder . 'menu/admin.php">Admin</a>');
-        }
-        $this->addHtml('</nav>
+            }
+            $this->addHtml('</nav>
       </div>');
         }
-    $this->addHtml('<main class="mdl-layout__content" style="flex: 1 0 auto;">
+        $this->addHtml('<main class="mdl-layout__content" style="flex: 1 0 auto;">
       <div class="mdl-layout__tab-panel is-active" id="overview">');
     }
 
-    function addFooter() {
+    public function addFooter() {
+        global $CONFIG;
 
         if ($this->menu == MENU_SETTINGS || $this->menu === MENU_GENERIC) {
             $folder = "../";
@@ -242,16 +261,16 @@ class WebUiGenerator {
           </div></main>');
 
         if ($this->menu == MENU_MAIN) {
-            $this->addHtml('<div id="myModal" class="modal">
+            $this->addHtml('<div id="myModal" class="modalmain">
 
           <!-- Modal content -->
-          <div class="modal-content">
+          <div class="modalmain-content">
             <span class="close">&times;</span>
             <div>
             <h2>Add barcode</h2>
 
         Enter your barcodes below, one each line.&nbsp;<br><br>
-        <form name="form" onsubmit="disableSSE()" method="post" action="' . $_SERVER['PHP_SELF'] . '" >
+        <form name="form" onsubmit="disableSSE()" method="post" action="' . $CONFIG->getPhpSelfWithBaseUrl() . '" >
         <textarea name="newbarcodes" id="newbarcodes" class="mdl-textfield__input" rows="15"></textarea>
 
         <br>
@@ -271,11 +290,12 @@ class WebUiGenerator {
         if ($this->menu == MENU_SETTINGS) {
             $this->addHtml('<button id="save-settings" onclick="checkAndReturn()" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-color--accent mdl-color-text--accent-contrast">Save</button>');
         }
-        $this->addHtml('</div><script src="'. $folder.'incl/js/material.min.js"></script><script src="'. $folder.'incl/js/scripts.js"></script>');
+        $this->addHtml('</div><script src="' . $folder . 'incl/js/material.min.js?v=' . BB_VERSION . '"></script>' .
+            '<script src="' . $folder . 'incl/js/federation.js?v=' . BB_VERSION . '"></script>' .
+            '<script src="' . $folder . 'incl/js/scripts.js?v=' . BB_VERSION . '"></script>');
 
         if ($this->menu == MENU_MAIN) {
-            $this->addHtml('<script> 
-
+            $this->addScript('
         var eventSource = null;
 
         function disableSSE() {
@@ -309,6 +329,15 @@ class WebUiGenerator {
         await delay(1000);
 
         eventSource = new EventSource("incl/sse/sse_data.php");
+        var connectFailCounter = 0;
+        eventSource.addEventListener("error", function (event) {
+            if (event.target.readyState === EventSource.CONNECTING) {
+                    connectFailCounter++
+                    if (connectFailCounter === 100) {
+                        eventSource.close();
+                    }
+            }
+        }, false);
         eventSource.onmessage = function(event) {
             var resultJson = JSON.parse(event.data);
                 var resultCode = resultJson.data.substring(0, 1);
@@ -340,52 +369,176 @@ class WebUiGenerator {
                   };
                 };
                 if(typeof(EventSource) !== "undefined")
-                  startWebsocket();
-
-        </script>');
+                  startWebsocket();');
         }
         $this->addHtml('</body>
     </html>');
     }
 
+
+    public function addAlert(string $text, string $title = null, string $callback = null, string $size = "medium") {
+        $alert = 'bootbox.alert({
+                message: "' . $text . '",
+                size: "' . $size . '",';
+        if ($callback != null)
+            $alert .= "\ncallback: function(){" . $callback . "},";
+        if ($title != null)
+            $alert .= "\ntitle: '" . $title . "',";
+        $alert .= '});';
+        $this->addScript($alert);
+    }
+
+
+    public function addConfirmDialog(string $text, string $callback, string $title = null, string $buttonPositive = "Confirm",
+                                     string $buttonNegative = "Cancel", string $size = "medium") {
+        $alert = 'bootbox.confirm({
+                message: "' . $text . '",
+                size: "' . $size . '",
+                buttons: {
+                    cancel: {
+                        label: "' . $buttonNegative . '",
+                        className: "btn-secondary"
+                    },
+                    confirm: {
+                        label: "' . $buttonPositive . '",
+                        className: "btn-success"
+                    }
+                },
+                callback: function (result) {' . $callback . '},';
+        if ($callback != null)
+            $alert .= "\n";
+        if ($title != null)
+            $alert .= "\ntitle: '" . $title . "',";
+        $alert .= '});';
+        $this->addScript($alert);
+    }
+
+    private static function getIcons(string $folder): string {
+        return "<style>
+        
+        
+        @font-face {
+          font-family: \"Material Icons\";
+          font-style: normal;
+          font-weight: 400;
+          src: url(" . $folder . "incl/fonts/materialicons.woff2) format(\"woff2\");
+        }
+        
+        .material-icons {
+          font-family: \"Material Icons\";
+          font-weight: normal;
+          font-style: normal;
+          font-size: 24px;
+          line-height: 1;
+          letter-spacing: normal;
+          text-transform: none;
+          display: inline-block;
+          white-space: nowrap;
+          speak: never;
+          word-wrap: normal;
+          direction: ltr;
+          -webkit-font-feature-settings: \"liga\";
+          -webkit-font-smoothing: antialiased;
+        }
+        
+        
+        .material-icons-small {
+          font-family: \"Material Icons\";
+          display: inline-block;
+          font: normal normal normal 14px/1 \"Material Icons\";
+          font-size: inherit;
+          text-rendering: auto; 
+           font-weight: normal;
+          font-style: normal;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+        
+        @font-face {
+          font-family: 'icomoon';
+          src:  url('" . $folder . "incl/fonts/icomoon.woff') format('woff');
+          font-weight: normal;
+          font-style: normal;
+          font-display: block;
+        }
+
+        [class^=\"icon-\"], [class*=\" icon-\"] {
+          /* use !important to prevent issues with browser extensions that change fonts */
+          font-family: 'icomoon' !important;
+          speak: never;
+          font-style: normal;
+          font-weight: normal;
+          font-variant: normal;
+          text-transform: none;
+          line-height: 1;
+        
+          /* Better Font Rendering =========== */
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .icon-navigation-more:before {
+          content: \"\\e900\";
+        }
+        .icon-cog:before {
+          content: \"\\e994\";
+        }
+        .icon-bin:before {
+          content: \"\\e9ac\";
+        }
+        .icon-flag:before {
+          content: \"\\e9cc\";
+        }
+        .icon-notification:before {
+          content: \"\\ea08\";
+        }
+        .icon-plus:before {
+          content: \"\\ea0a\";
+        }
+        .icon-checkmark:before {
+          content: \"\\ea10\";
+        }
+        </style>";
+    }
 }
 
 class TableGenerator {
     private $htmlOutput = "";
-    
+
     function __construct($tableHeadItems) {
-        $this->htmlOutput  = '<table class="mdl-data-table mdl-js-data-table mdl-cell">
+        $this->htmlOutput = '<table class="mdl-data-table mdl-js-data-table mdl-cell">
                  <thead>
                     <tr>';
         foreach ($tableHeadItems as $item) {
-                $this->htmlOutput = $this->htmlOutput . '<th class="mdl-data-table__cell--non-numeric">' . $item . '</th>';
+            $this->htmlOutput = $this->htmlOutput . '<th class="mdl-data-table__cell--non-numeric">' . $item . '</th>';
         }
         $this->htmlOutput = $this->htmlOutput . '    </tr>
                   </thead>
                   <tbody>';
     }
-    
-    
+
+
     function startRow() {
         $this->htmlOutput = $this->htmlOutput . '<tr>';
     }
 
     function addCell($html) {
-            $this->htmlOutput = $this->htmlOutput . '<td class="mdl-data-table__cell--non-numeric">' . $html . '</td>';
+        $this->htmlOutput = $this->htmlOutput . '<td class="mdl-data-table__cell--non-numeric">' . $html . '</td>';
     }
 
     function endRow() {
         $this->htmlOutput = $this->htmlOutput . '</tr>';
     }
-    
+
     function getHtml() {
         return $this->htmlOutput . '</tbody></table>';
     }
-    
+
 }
 
 
 function hideGetPostParameters() {
-  header("Location: " . $_SERVER["PHP_SELF"]);
-  die();
+    global $CONFIG;
+    header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
+    die();
 }

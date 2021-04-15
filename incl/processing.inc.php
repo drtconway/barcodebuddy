@@ -21,9 +21,16 @@ require_once __DIR__ . "/db.inc.php";
 require_once __DIR__ . "/config.inc.php";
 require_once __DIR__ . "/lookupProviders/BarcodeLookup.class.php";
 
-
-// Function that is called when a barcode is passed on
-function processNewBarcode($barcodeInput, $bestBeforeInDays = null, $price = null) {
+/**
+ *
+ * Function that is called when a barcode is passed on
+ * @param string $barcodeInput
+ * @param string|null $bestBeforeInDays
+ * @param string|null $price
+ * @return string
+ * @throws DbConnectionDuringEstablishException
+ */
+function processNewBarcode(string $barcodeInput, ?string $bestBeforeInDays = null, ?string $price = null): string {
     $db     = DatabaseConnection::getInstance();
     $config = BBConfig::getInstance();
 
@@ -91,7 +98,7 @@ function processNewBarcode($barcodeInput, $bestBeforeInDays = null, $price = nul
         return $log->setVerbose()->setWebsocketResultCode(WS_RESULT_PRODUCT_UNKNOWN)->createLog();
     }
 
-    if ($db->isChoreBarcode($barcode)) {
+    if (ChoreManager::isChoreBarcode($barcode)) {
         $choreText = processChoreBarcode($barcode);
         $log       = new LogOutput("Executed chore: " . $choreText, EVENT_TYPE_EXEC_CHORE);
         return $log->setVerbose()->createLog();
@@ -105,17 +112,17 @@ function processNewBarcode($barcodeInput, $bestBeforeInDays = null, $price = nul
     $sanitizedBarcode = sanitizeString($barcode);
     $lockGenerator    = new LockGenerator();
     $lockGenerator->createLock();
-    $productInfo = API::getProductByBardcode($sanitizedBarcode);
-    if ($productInfo == null) {
+    $productInfoFromBarcode = API::getProductByBarcode($sanitizedBarcode);
+    if ($productInfoFromBarcode == null) {
         $db->saveLastBarcode($sanitizedBarcode);
         return processUnknownBarcode($sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price, $quantity);
     } else {
-        $db->saveLastBarcode($sanitizedBarcode, $productInfo["name"]);
-        return processKnownBarcode($productInfo, $sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price, $quantity);
+        $db->saveLastBarcode($sanitizedBarcode, $productInfoFromBarcode->name);
+        return processKnownBarcode($productInfoFromBarcode, $sanitizedBarcode, true, $lockGenerator, $bestBeforeInDays, $price, $quantity);
     }
 }
 
-function createLogModeChange($state) {
+function createLogModeChange(int $state): string {
     $text = "Set state to ";
     switch ($state) {
         case STATE_CONSUME:
@@ -179,27 +186,42 @@ const WS_RESULT_MODE_CHANGE       = 4;
 const WS_RESULT_ERROR             = 'E';
 
 
-//Execute a chore when chore barcode was submitted
-function processChoreBarcode($barcode) {
-    $id = DatabaseConnection::getInstance()->getChoreBarcode(sanitizeString($barcode))['choreId'];
+/**
+ * Execute a chore when chore barcode was submitted
+ * @param string $barcode
+ * @return mixed
+ * @throws DbConnectionDuringEstablishException
+ */
+function processChoreBarcode(string $barcode) {
+    $id = ChoreManager::getChoreBarcode(sanitizeString($barcode))['choreId'];
     checkIfNumeric($id);
     API::executeChore($id);
-    return sanitizeString(API::getChoresInfo($id)["name"]);
+    return sanitizeString(API::getChoreInfo($id)["name"]);
 }
 
-//If grocy does not know this barcode
-function processUnknownBarcode($barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price, $quantity) {
+/**
+ * This is called if grocy does not know the barcode
+ * @param string $barcode
+ * @param bool $websocketEnabled
+ * @param LockGenerator $fileLock
+ * @param string|null $bestBeforeInDays
+ * @param string|null $price
+ * @param int|null $quantity
+ * @return string
+ * @throws DbConnectionDuringEstablishException
+ */
+function processUnknownBarcode(string $barcode, bool $websocketEnabled, LockGenerator &$fileLock, ?string $bestBeforeInDays, ?string $price, ?int $quantity): string {
     $db     = DatabaseConnection::getInstance();
     $amount = 1;
     if ($quantity != null) {
         $amount = $quantity;
     }
     else if ($db->getTransactionState() == STATE_PURCHASE) {
-        $amount = $db->getQuantityByBarcode($barcode);
+        $amount = QuantityManager::getStoredQuantityForBarcode($barcode);
     }
     if ($db->isUnknownBarcodeAlreadyStored($barcode)) {
         //Unknown barcode already in local database
-        $db->addQuantitiyToUnknownBarcode($barcode, $amount);
+        $db->addQuantityToUnknownBarcode($barcode, $amount);
         $log    = new LogOutput("Unknown product already scanned. Increasing quantity.", EVENT_TYPE_ADD_NEW_BARCODE, $barcode);
         $output = $log
             ->insertBarcodeInWebsocketText()
@@ -207,17 +229,17 @@ function processUnknownBarcode($barcode, $websocketEnabled, &$fileLock, $bestBef
             ->setWebsocketResultCode(WS_RESULT_PRODUCT_LOOKED_UP)
             ->createLog();
     } else {
-        $productname = "N/A";
+        $productname = null;
         if (is_numeric($barcode)) {
             $productname = BarcodeLookup::lookup($barcode);
         }
-        if ($productname != "N/A") {
-            $db->insertUnrecognizedBarcode($barcode, $amount, $bestBeforeInDays, $price, $productname, $db->checkNameForTags($productname));
-            $log    = new LogOutput("Unknown barcode looked up, found name: " . $productname, EVENT_TYPE_ADD_NEW_BARCODE, $barcode);
+        if ($productname != null) {
+            $db->insertUnrecognizedBarcode($barcode, $amount, $bestBeforeInDays, $price, $productname);
+            $log    = new LogOutput("Unknown barcode looked up, found name: " . $productname["name"], EVENT_TYPE_ADD_NEW_BARCODE, $barcode);
             $output = $log
                 ->insertBarcodeInWebsocketText()
                 ->setSendWebsocket($websocketEnabled)
-                ->setCustomWebsocketText($productname)
+                ->setCustomWebsocketText($productname["name"])
                 ->setWebsocketResultCode(WS_RESULT_PRODUCT_LOOKED_UP)
                 ->createLog();
         } else {
@@ -236,53 +258,56 @@ function processUnknownBarcode($barcode, $websocketEnabled, &$fileLock, $bestBef
 }
 
 
-//Convert state to string for websocket server
-function stateToString($state) {
+/**
+ * Converts state to string for websocket server
+ * @param int $state
+ * @return string
+ */
+function stateToString(int $state): string {
     $allowedModes = array(
-        STATE_CONSUME => "Consume",
-        STATE_CONSUME_SPOILED => "Consume(spoiled)",
-        STATE_PURCHASE => "Purchase",
-        STATE_OPEN => "Open",
-        STATE_GETSTOCK => "Inventory",
-        STATE_ADD_SL => "Add to shoppinglist"
+        STATE_CONSUME         => "Consume",
+        STATE_CONSUME_SPOILED => "Consume (spoiled)",
+        STATE_CONSUME_ALL     => "Consume (all)",
+        STATE_PURCHASE        => "Purchase",
+        STATE_OPEN            => "Open",
+        STATE_GETSTOCK        => "Inventory",
+        STATE_ADD_SL          => "Add to shoppinglist"
     );
     return $allowedModes[$state];
 }
 
-function getProductByIdFromVariable($id, $products) {
-    foreach ($products as $product) {
-        if ($product["id"] == $id)
-            return $product;
-    }
-    return null;
-}
+function changeWeightTareItem(string $barcode, int $newWeight): bool {
+    $product = API::getProductByBarcode($barcode);
+    if ($product == null)
+        return false;
 
-function changeWeightTareItem($barcode, $newWeight) {
-    $product = API::getProductByBardcode($barcode);
-
-    if (($product["stockAmount"] + $product["tareWeight"]) == $newWeight) {
-        $log = new LogOutput("Weight unchanged for: " . $product["name"], EVENT_TYPE_ACTION_REQUIRED);
+    if (($product->stockAmount + $product->tareWeight) == $newWeight) {
+        $log = new LogOutput("Weight unchanged for: " . $product->name, EVENT_TYPE_ACTION_REQUIRED);
         $log->setVerbose()->dontSendWebsocket()->createLog();
         return true;
     }
-    if ($newWeight < $product["tareWeight"]) {
-        $log = new LogOutput("Entered weight for " . $product["name"] . " is below tare weight(" . $product["tareWeight"] . ")", EVENT_TYPE_ACTION_REQUIRED);
+    if ($newWeight < $product->tareWeight) {
+        $log = new LogOutput("Entered weight for " . $product->name . " is below tare weight(" . $product->tareWeight . ")", EVENT_TYPE_ACTION_REQUIRED);
         $log->setVerbose()->dontSendWebsocket()->createLog();
         return false;
     }
 
-    if ($product["stockAmount"] > ($newWeight - $product["tareWeight"])) {
-        API::consumeProduct($product["id"], $newWeight);
+    if ($product->stockAmount > ($newWeight - $product->tareWeight)) {
+        API::consumeProduct($product->id, $newWeight);
     } else {
-        API::purchaseProduct($product["id"], $newWeight);
+        API::purchaseProduct($product->id, $newWeight);
     }
-    $log = new LogOutput("Weight set to " . $newWeight . " for: " . $product["name"], EVENT_TYPE_ACTION_REQUIRED);
+    $log = new LogOutput("Weight set to " . $newWeight . " for: " . $product->name, EVENT_TYPE_ACTION_REQUIRED);
     $log->setVerbose()->dontSendWebsocket()->createLog();
     return true;
 }
 
-//Change mode if was supplied by GET parameter
-function processModeChangeGetParameter($modeParameter) {
+/**
+ * Change mode if it was supplied by GET parameter
+ * @param string $modeParameter
+ * @throws DbConnectionDuringEstablishException
+ */
+function processModeChangeGetParameter(string $modeParameter) {
     $db = DatabaseConnection::getInstance();
     switch (trim($modeParameter)) {
         case "consume":
@@ -307,27 +332,40 @@ function processModeChangeGetParameter($modeParameter) {
 }
 
 
-//This will be called when a new grocy product is created from BB and the grocy tab is closed
-function processRefreshedBarcode($barcode) {
-    $productInfo = API::getProductByBardcode($barcode);
+/**
+ * This will be called when a new grocy product is created from BB and the grocy tab is closed
+ * @param string $barcode
+ * @throws DbConnectionDuringEstablishException
+ */
+function processRefreshedBarcode(string $barcode) {
+    RedisConnection::expireAllProductInfo();
+    $productInfo = API::getLastCreatedProduct(5);
     if ($productInfo != null) {
-        DatabaseConnection::getInstance()->updateSavedBarcodeMatch($barcode, $productInfo["id"]);
+        DatabaseConnection::getInstance()->updateSavedBarcodeMatch($barcode, $productInfo->id);
     }
 }
 
-//We are using the old inventory API until the next Grocy version is officially released
-const USE_NEW_INVENTORY_API = false;
-
-// Process a barcode that Grocy already knows
-function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLock, $bestBeforeInDays, $price, $quantity) {
+/**
+ * Process a barcode that Grocy already knows
+ * @param GrocyProduct $productInfo
+ * @param string $barcode
+ * @param bool $websocketEnabled
+ * @param LockGenerator $fileLock
+ * @param string|null $bestBeforeInDays
+ * @param string|null $price
+ * @param int|null $quantity
+ * @return string
+ * @throws DbConnectionDuringEstablishException
+ */
+function processKnownBarcode(GrocyProduct $productInfo, string $barcode, bool $websocketEnabled, LockGenerator &$fileLock, ?string $bestBeforeInDays, ?string $price, ?int $quantity): string {
     $config = BBConfig::getInstance();
     $db     = DatabaseConnection::getInstance();
 
-    if ($productInfo["isTare"]) {
+    if ($productInfo->isTare) {
         if (!$db->isUnknownBarcodeAlreadyStored($barcode))
             $db->insertActionRequiredBarcode($barcode, $bestBeforeInDays, $price);
         $fileLock->removeLock();
-        $log = new LogOutput("Action required: Enter weight for " . $productInfo["name"], EVENT_TYPE_ACTION_REQUIRED, $barcode);
+        $log = new LogOutput("Action required: Enter weight for " . $productInfo->name, EVENT_TYPE_ACTION_REQUIRED, $barcode);
         return $log->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)->createLog();
     }
 
@@ -336,40 +374,40 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
 
     switch ($state) {
         case STATE_CONSUME:
-            $amountToConsume = getQuantityForBarcode($barcode, true, $productInfo, $quantity);
+            $amountToConsume = QuantityManager::getQuantityForBarcode($barcode, true, $productInfo, $quantity);
 
-            if ($productInfo["stockAmount"] > 0) {
-                if ($productInfo["stockAmount"] < $amountToConsume)
-                    $amountToConsume = $productInfo["stockAmount"];
-                $log    = new LogOutput("Consuming " . $amountToConsume . " " . $productInfo["unit"] . " of " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+            if ($productInfo->stockAmount > 0) {
+                if ($productInfo->stockAmount < $amountToConsume)
+                    $amountToConsume = $productInfo->stockAmount;
+                $log    = new LogOutput("Consuming " . $amountToConsume . " " . $productInfo->unit . " of " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
-                    ->addStockToText($productInfo["stockAmount"] - $amountToConsume)
+                    ->addStockToText($productInfo->stockAmount - $amountToConsume)
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
                     ->createLog();
-                API::consumeProduct($productInfo["id"], $amountToConsume, false);
+                API::consumeProduct($productInfo->id, $amountToConsume, false);
                 $fileLock->removeLock();
                 return $output;
             } else {
                 $fileLock->removeLock();
-                $log = new LogOutput("None in stock, not consuming: " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+                $log = new LogOutput("None in stock, not consuming: " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 return $log
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
                     ->createLog();
             }
         case STATE_CONSUME_ALL:
-            $amountToConsume = $productInfo["stockAmount"];
-            if ($productInfo["stockAmount"] > 0) {
-                $log    = new LogOutput("Consuming all" . $amountToConsume . " " . $productInfo["unit"] . " of " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+            $amountToConsume = $productInfo->stockAmount;
+            if ($productInfo->stockAmount > 0) {
+                $log    = new LogOutput("Consuming all" . $amountToConsume . " " . $productInfo->unit . " of " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
                     ->createLog();
 
-                API::consumeProduct($productInfo["id"], $amountToConsume, false);
+                API::consumeProduct($productInfo->id, $amountToConsume, false);
             } else {
-                $log    = new LogOutput("None in stock, not consuming: " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+                $log    = new LogOutput("None in stock, not consuming: " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
@@ -382,17 +420,16 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
             $fileLock->removeLock();
             return $output;
         case STATE_CONSUME_SPOILED:
-            //TODO respect quantity factor
-            if ($productInfo["stockAmount"] > 0) {
-                $log    = new LogOutput("Consuming 1 spoiled " . $productInfo["unit"] . " of " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+            if ($productInfo->stockAmount > 0) {
+                $log    = new LogOutput("Consuming 1 spoiled " . $productInfo->unit . " of " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
-                    ->addStockToText($productInfo["stockAmount"] - 1)
+                    ->addStockToText($productInfo->stockAmount - 1)
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
                     ->createLog();
-                API::consumeProduct($productInfo["id"], 1, true);
+                API::consumeProduct($productInfo->id, 1, true);
             } else {
-                $log    = new LogOutput("Product found . None in stock, not consuming: " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+                $log    = new LogOutput("Product found . None in stock, not consuming: " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
@@ -405,31 +442,34 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
             }
             return $output;
         case STATE_PURCHASE:
-            $amount = getQuantityForBarcode($barcode, false, $productInfo, $quantity);
-            if ($productInfo["defaultBestBefore"] == 0 && $bestBeforeInDays == null)
-                $additionalLog = " [WARNING]: No default best before date set!";
-            else
+            $isWarning = false;
+            $amount    = QuantityManager::getQuantityForBarcode($barcode, false, $productInfo, $quantity);
+            if ($productInfo->defaultBestBeforeDays == 0 && $bestBeforeInDays == null) {
+                $additionalLog = " <span style=\"color: orange;\">No default best before date set!</span>";
+                $isWarning     = true;
+            } else {
                 $additionalLog = "";
-            $log    = new LogOutput("Adding  $amount " . $productInfo["unit"] . " of " . $productInfo["name"] . $additionalLog, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+            }
+            $log    = new LogOutput("Adding  $amount " . $productInfo->unit . " of " . $productInfo->name . $additionalLog, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode, $isWarning);
             $output = $log
-                ->addStockToText($productInfo["stockAmount"] + $amount)
+                ->addStockToText($productInfo->stockAmount + $amount)
                 ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                 ->addProductFoundText()
                 ->createLog();
-            API::purchaseProduct($productInfo["id"], $amount, $bestBeforeInDays, $price, $fileLock, $productInfo["defaultBestBefore"]);
+            API::purchaseProduct($productInfo->id, $amount, $bestBeforeInDays, $price, $fileLock, $productInfo->defaultBestBeforeDays);
             //no $fileLock->removeLock() needed, as it is done in API::purchaseProduct
             return $output;
         case STATE_OPEN:
-            if ($productInfo["stockAmount"] > 0) {
-                $log    = new LogOutput("Opening 1 " . $productInfo["unit"] . " of " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+            if ($productInfo->stockAmount > 0) {
+                $log    = new LogOutput("Opening 1 " . $productInfo->unit . " of " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
-                    ->addStockToText($productInfo["stockAmount"])
+                    ->addStockToText($productInfo->stockAmount)
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
                     ->createLog();
-                API::openProduct($productInfo["id"]);
+                API::openProduct($productInfo->id);
             } else {
-                $log    = new LogOutput("Product found . None in stock, not opening: " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
+                $log    = new LogOutput("Product found . None in stock, not opening: " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE, $barcode);
                 $output = $log
                     ->setWebsocketResultCode(WS_RESULT_PRODUCT_FOUND)
                     ->addProductFoundText()
@@ -443,54 +483,41 @@ function processKnownBarcode($productInfo, $barcode, $websocketEnabled, &$fileLo
             return $output;
         case STATE_GETSTOCK:
             $fileLock->removeLock();
-            $log = "Currently in stock: " . $productInfo["stockAmount"] . " " . $productInfo["unit"] . " of " . $productInfo["name"];
-            if (USE_NEW_INVENTORY_API) {
-                if ($productInfo["stockAmount"] > 0) {
-                    $locationInfo = API::getProductLocations($productInfo["id"]);
-                    foreach ($locationInfo as $location) {
-                        $log = $log . "\nLocation " . $location["location_name"] . ": " . $location["amount"] . " " . $productInfo["unit"];
-                    }
+            $log = "Currently in stock: " . $productInfo->stockAmount . " " . $productInfo->unit . " of " . $productInfo->name;
+            if ($productInfo->stockAmount > 0) {
+                $locationInfo = API::getProductLocations($productInfo->id);
+                foreach ($locationInfo as $location) {
+                    $log = $log . "\nLocation " . $location["location_name"] . ": " . $location["amount"] . " " . $productInfo->unit;
                 }
             }
             return (new LogOutput($log, EVENT_TYPE_ADD_KNOWN_BARCODE))->createLog();
         case STATE_ADD_SL:
             $fileLock->removeLock();
-            return (new LogOutput("Added to shopping list: 1 " . $productInfo["unit"] . " of " . $productInfo["name"], EVENT_TYPE_ADD_KNOWN_BARCODE))->createLog();
-            API::addToShoppinglist($productInfo["id"], 1);
+            $output = (new LogOutput("Added to shopping list: 1 " . $productInfo->unit . " of " . $productInfo->name, EVENT_TYPE_ADD_KNOWN_BARCODE))->createLog();
+            API::addToShoppinglist($productInfo->id, 1);
             return $output;
         default:
             throw new Exception("Unknown state");
     }
 }
 
-function getQuantityForBarcode($barcode, $isConsume, $productInfo, $quantity) {
-    $config = BBConfig::getInstance();
-
-    $resultQuantity = 1;
-    if ($quantity != null) {
-        $resultQuantity = $quantity;
-    }
-    if ($config["USE_GROCY_QU_FACTOR"]) {
-        $resultQuantity *= intval($productInfo["quFactor"]);
-    }
-    else if ($isConsume && $quantity == null && $config["CONSUME_SAVED_QUANTITY"]) {
-        $resultQuantity = DatabaseConnection::getInstance()->getQuantityByBarcode($barcode);
-    }
-
-    return $resultQuantity;
-}
-
-
-//Function for generating the <select> elements in the web ui
-function printSelections($selected, $productinfo) {
+/**
+ * Function for generating the <select> elements in the web ui
+ * @param string $selected
+ * @param array|null $productinfo array
+ * @return string
+ */
+function printSelections(string $selected, ?array $productinfo): string {
+    $optionscontent = " <option value = \"0\" >= None =</option>";
+    if (!isset($productinfo) || !sizeof($productinfo))
+        return $optionscontent;
 
     $selections = array();
     foreach ($productinfo as $product) {
-        $selections[$product["id"]] = $product["name"];
+        $selections[$product->id] = $product->name;
     }
-    natcasesort($selections);
 
-    $optionscontent = " <option value = \"0\" >= None =</option>";
+    natcasesort($selections);
     foreach ($selections as $key => $val) {
         if ($key != $selected) {
             $optionscontent = $optionscontent . "<option value=\"" . $key . "\">" . $val . "</option>";
@@ -498,11 +525,19 @@ function printSelections($selected, $productinfo) {
             $optionscontent = $optionscontent . "<option value=\"" . $key . "\" selected >" . $val . "</option>";
         }
     }
+
     return $optionscontent;
 }
 
-//Sanitizes a string for database input
-function sanitizeString($input, $strongFilter = false) {
+/**
+ * Sanitizes a string for database input
+ * @param string|null $input
+ * @param bool $strongFilter
+ * @return mixed|null
+ */
+function sanitizeString(?string $input, bool $strongFilter = false) {
+    if ($input == null)
+        return null;
     if ($strongFilter) {
         return filter_var($input, FILTER_SANITIZE_STRING, FILTER_FLAG_STRIP_LOW | FILTER_FLAG_STRIP_HIGH);
     } else {
@@ -510,104 +545,135 @@ function sanitizeString($input, $strongFilter = false) {
     }
 }
 
-//Terminates script if non numeric
-function checkIfNumeric($input) {
+/**
+ * Terminates script if non numeric
+ * @param string $input
+ */
+function checkIfNumeric(string $input) {
     if (!is_numeric($input)) {
         die("Illegal input! " . sanitizeString($input) . " needs to be a number");
     }
 }
 
-//Generate checkboxes for web ui
-function explodeWordsAndMakeCheckboxes($words, $id) {
-    if ($words == "N/A") {
+/**
+ * Generate checkboxes for web ui
+ * @param string $productName
+ * @param int $id
+ * @return string
+ * @throws DbConnectionDuringEstablishException
+ */
+function explodeWordsAndMakeCheckboxes(string $productName, int $id): string {
+    if ($productName == "N/A") {
         return "";
     }
     $selections = "";
-    $cleanWords = cleanNameForTagLookup($words);
+    $cleanWords = cleanNameForTagLookup($productName);
     $i          = 0;
+    $addedWords = array(); // Check if word is used multiple times when creating possible tags
     foreach ($cleanWords as $str) {
         $tagWord = trim($str);
-        if (strlen($tagWord) > 0 && DatabaseConnection::getInstance()->tagNotUsedYet($tagWord)) {
+        if (strlen($tagWord) > 0 && !in_array(strtolower($tagWord), $addedWords) && TagManager::tagNotInUse($tagWord)) {
             $selections = $selections . '<label class="mdl-checkbox mdl-js-checkbox mdl-js-ripple-effect" for="checkbox-' . $id . '_' . $i . '">
   <input type="checkbox"  value="' . $tagWord . '" name="tags[' . $id . '][' . $i . ']" id="checkbox-' . $id . '_' . $i . '" class="mdl-checkbox__input">
   <span class="mdl-checkbox__label">' . $tagWord . '</span>
 </label>';
             $i++;
+            array_push($addedWords, strtolower($tagWord));
         }
     }
     return $selections;
 }
 
-function cleanNameForTagLookup($input) {
+function cleanNameForTagLookup(string $input): array {
     $ignoreChars = array(",", ".", "-", ":", "(", ")");
     $cleanWords  = str_replace($ignoreChars, " ", $input);
     return explode(' ', $cleanWords);
 }
 
-//If a quantity barcode was scanned, add the quantity and process further
-function changeQuantityAfterScan($amount) {
+/**
+ * If a quantity barcode was scanned, add the quantity and process further
+ * @param int $amount
+ * @throws DbConnectionDuringEstablishException
+ */
+function changeQuantityAfterScan(int $amount) {
     $config = BBConfig::getInstance();
 
     $db      = DatabaseConnection::getInstance();
     $barcode = sanitizeString($config["LAST_BARCODE"]);
     if ($config["LAST_PRODUCT"] != null) {
-        $db->addUpdateQuantitiy($barcode, $amount, $config["LAST_PRODUCT"]);
+        API::addBarcodeQuantity($barcode, $amount);
     } else {
-        $product = API::getProductByBardcode($barcode);
+        $product = API::getProductByBarcode($barcode);
         if ($product != null) {
-            $db->addUpdateQuantitiy($barcode, $amount, $product["name"]);
+            API::addBarcodeQuantity($barcode, $amount);
         } else {
-            $db->addUpdateQuantitiy($barcode, $amount);
+            QuantityManager::addUpdateEntry($barcode, $amount);
         }
     }
     if ($db->getStoredBarcodeAmount($barcode) == 1) {
-        $db->setQuantitiyToUnknownBarcode($barcode, $amount);
+        $db->setQuantityToUnknownBarcode($barcode, $amount);
     }
 }
 
 
-//Merge tags and product info
-function getAllTags() {
-    $tags       = DatabaseConnection::getInstance()->getStoredTags();
-    $products   = API::getProductInfo();
-    $returnTags = array();
+/**
+ * Merge tags and product info
+ * @return array[Tag[],Tag[]]
+ * @throws DbConnectionDuringEstablishException
+ */
+function getAllTags(): array {
+    $tags       = TagManager::getStoredTags();
+    $products   = API::getAllProductsInfo();
+    $returnTags = array("active" => array(), "inactive" => array());
+
 
     foreach ($tags as $tag) {
-        foreach ($products as $product) {
-            if ($product["id"] == $tag["itemId"]) {
-                $tag["item"] = $product["name"];
-                array_push($returnTags, $tag);
-                break;
-            }
-        }
+        if (isset($products[$tag->itemId])) {
+            $tag->item = $products[$tag->itemId]->name;
+            array_push($returnTags["active"], $tag);
+        } else
+            array_push($returnTags["inactive"], $tag);
     }
-    usort($returnTags, "sortTags");
+    usort($returnTags["active"], "sortTags");
     return $returnTags;
 }
 
-//Sorts the tags by name
-function sortTags($a, $b) {
-    return $a['item'] > $b['item'];
+/**
+ * Sorts the tags by name
+ * @param Tag $a
+ * @param Tag $b
+ * @return bool
+ */
+function sortTags(Tag $a, Tag $b): bool {
+    return $a->compare($b);
 }
 
-
-//Sorts the chores by name
+/**
+ * Sorts the chores by name
+ * @param $a
+ * @param $b
+ * @return bool
+ */
 function sortChores($a, $b) {
     return $a['name'] > $b['name'];
 }
 
 
-//Merges chores with chore info
-function getAllChores() {
-    $chores       = API::getChoresInfo();
-    $barcodes     = DatabaseConnection::getInstance()->getStoredChoreBarcodes();
+/**
+ * Merges chores with chore info
+ * @return array
+ * @throws DbConnectionDuringEstablishException
+ */
+function getAllChores(): array {
+    $chores       = API::getAllChoresInfo();
+    $barcodes     = ChoreManager::getBarcodes();
     $returnChores = array();
 
     foreach ($chores as $chore) {
         $chore["barcode"] = null;
         foreach ($barcodes as $barcode) {
-            if ($chore["id"] == $barcode["choreId"]) {
-                $chore["barcode"] = $barcode["barcode"];
+            if ($chore["id"] == $barcode->choreId) {
+                $chore["barcode"] = $barcode->barcode;
                 break;
             }
         }
@@ -617,15 +683,25 @@ function getAllChores() {
     return $returnChores;
 }
 
-//Returns true if string starts with $startString
-function stringStartsWith($string, $startString) {
+/**
+ * Returns true if string starts with $startString
+ * @param $string
+ * @param $startString
+ * @return bool
+ */
+function stringStartsWith(string $string, string $startString): bool {
     $len = strlen($startString);
     return (substr($string, 0, $len) === $startString);
 }
 
 
-//Trim string
-function strrtrim($message, $strip) {
+/**
+ * Trim string
+ * @param $message
+ * @param $strip
+ * @return string
+ */
+function strrtrim(string $message, string $strip): string {
     // break message apart by strip string 
     $lines = explode($strip, $message);
     $last  = '';
@@ -641,7 +717,7 @@ function generateRandomString($length = 30) {
     return substr(str_shuffle(str_repeat($x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length / strlen($x)))), 1, $length);
 }
 
-function getApiUrl($removeAfter) {
+function getApiUrl($removeAfter): string {
     $protocol = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off') || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
 
     $url = $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
@@ -658,39 +734,48 @@ class LogOutput {
 
     private $logText;
     private $eventType;
-    private $barcode = null;
+    private $barcode;
     private $isVerbose = false;
     private $sendWebsocketMessage = true;
     private $websocketResultCode = WS_RESULT_PRODUCT_FOUND;
     private $websocketText;
+    private $isError;
 
-    function __construct($logText, $eventType, $barcode = null) {
+    /**
+     * LogOutput constructor.
+     * @param string $logText
+     * @param int $eventType
+     * @param string|null $barcode
+     * @param bool $isError
+     */
+    function __construct(string $logText, int $eventType, string $barcode = null, bool $isError = false) {
         $this->logText       = $logText;
         $this->eventType     = $eventType;
         $this->websocketText = $logText;
         $this->barcode       = $barcode;
+        $this->isError       = $isError;
 
         if ($barcode != null)
-            $this->logText .= " Barcode: $barcode";
+            $this->logText .= " [$barcode]";
     }
 
-    public function setVerbose() {
+    public function setVerbose(): LogOutput {
         $this->isVerbose = true;
         return $this;
     }
 
-    public function insertBarcodeInWebsocketText() {
+    public function insertBarcodeInWebsocketText(): LogOutput {
         if ($this->barcode != null)
             $this->websocketText .= " Barcode: $this->barcode";
         return $this;
     }
 
-    public function dontSendWebsocket() {
+    public function dontSendWebsocket(): LogOutput {
         $this->sendWebsocketMessage = false;
         return $this;
     }
 
-    public function addStockToText($amount) {
+    public function addStockToText($amount): LogOutput {
         if (!BBConfig::getInstance()["SHOW_STOCK_ON_SCAN"])
             return $this;
         //Do not have "." at the beginning if last character was "!"
@@ -706,30 +791,39 @@ class LogOutput {
     }
 
 
-    public function addProductFoundText() {
+    public function addProductFoundText(): LogOutput {
         $this->logText = "Product found. " . $this->logText;
         return $this;
     }
 
-    public function setSendWebsocket($sendWebsocket) {
+    public function setSendWebsocket($sendWebsocket): LogOutput {
         $this->sendWebsocketMessage = $sendWebsocket;
         return $this;
     }
 
-    public function setWebsocketResultCode($code) {
+    public function setWebsocketResultCode($code): LogOutput {
         $this->websocketResultCode = $code;
         return $this;
     }
 
-    public function setCustomWebsocketText($text) {
+    public function setCustomWebsocketText($text): LogOutput {
         $this->websocketText = $text;
         return $this;
     }
 
-    public function createLog() {
+    /**
+     * @return string
+     * @throws DbConnectionDuringEstablishException
+     */
+    public function createLog(): string {
         global $LOADED_PLUGINS;
 
-        DatabaseConnection::getInstance()->saveLog($this->logText, $this->isVerbose);
+        if ($this->isError) {
+            $this->websocketText = str_replace("</span>", "", $this->websocketText);
+            $this->websocketText = preg_replace("/<span .*?>+/", "- WARNING: ", $this->websocketText);
+        }
+
+        DatabaseConnection::getInstance()->saveLog($this->logText, $this->isVerbose, $this->isError);
         if ($this->sendWebsocketMessage) {
             sendWebsocketMessage($this->websocketText, $this->websocketResultCode);
         }

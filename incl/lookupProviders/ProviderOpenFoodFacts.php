@@ -19,7 +19,6 @@ require_once __DIR__ . "/../api.inc.php";
 
 class ProviderOpenFoodFacts extends LookupProvider {
 
-
     function __construct($apiKey = null) {
         parent::__construct($apiKey);
         $this->providerName      = "OpenFoodFacts";
@@ -29,9 +28,9 @@ class ProviderOpenFoodFacts extends LookupProvider {
     /**
      * Looks up a barcode
      * @param string $barcode The barcode to lookup
-     * @return null|string         Name of product, null if none found
+     * @return array|null Name of product, null if none found
      */
-    public function lookupBarcode($barcode) {
+    public function lookupBarcode(string $barcode): ?array {
         if (!$this->isProviderEnabled())
             return null;
 
@@ -49,17 +48,6 @@ class ProviderOpenFoodFacts extends LookupProvider {
             $productName = sanitizeString($result["product"]["product_name"]);
         }
 
-        if ($this->useGenericName) {
-            if ($genericName != null)
-                return $genericName;
-            if ($productName != null)
-                return $productName;
-        } else {
-            if ($productName != null)
-                return $productName;
-            if ($genericName != null)
-                return $genericName;
-        }
-        return null;
+        return self::createReturnArray($this->returnNameOrGenericName($productName, $genericName));
     }
 }

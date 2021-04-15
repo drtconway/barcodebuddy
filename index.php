@@ -31,6 +31,13 @@ if (isset($_GET["version"]) || (isset($argv[1]) && $argv[1] == "-v")) {
     die("BarcodeBuddy " . BB_VERSION);
 }
 
+//Run API benchmark when the parameter --benchmark is supplied
+if (isset($argv[1]) && $argv[1] == "--benchmark") {
+    if (isset($argv[2]) && is_numeric($argv[2]))
+        API::runBenchmark($argv[2]);
+    else
+        die("Benchmark requires a numeric parameter with the product ID to test, eg 'php index.php --benchmark 1'");
+}
 
 //If arguments are passed with the CLI, parse them as barcode
 if (isset($argv[1])) {
@@ -38,12 +45,11 @@ if (isset($argv[1])) {
     die;
 }
 
-
 $CONFIG->checkIfAuthenticated(true);
 
 //If invalid settings are set, load setup
 if (checkExtensionsInstalled()["result"] == RESULT_REQ_MISSING || !isGrocyApiSet()) {
-    header("Location: setup.php");
+    header("Location: ./setup.php");
     die();
 }
 
@@ -78,6 +84,15 @@ if (isset($_GET["text"])) {
     hideGetPostParameters();
 }
 
+//After clicking on buttons on Federation popup
+if (isset($_GET["fed"])) {
+    if ($_GET["fed"] == 1) {
+        BarcodeFederation::enableFederation();
+    } else {
+        BarcodeFederation::disableFederation();
+    }
+    hideGetPostParameters();
+}
 
 // If a button was pressed, we are processing everything here.
 // Only one row can be processed at a time
@@ -85,7 +100,7 @@ processButtons();
 
 $barcodes = DatabaseConnection::getInstance()->getStoredBarcodes();
 if (sizeof($barcodes['known']) > 0 || sizeof($barcodes['unknown']) > 0 || sizeof($barcodes['tare']) > 0) {
-    $productinfo = API::getProductInfo();
+    $productinfo = API::getAllProductsInfo();
 }
 
 //Only pass refreshed cards to AJAX
@@ -98,44 +113,62 @@ if (isset($_GET["ajaxrefresh"])) {
     die();
 }
 
-
 $webUi = new WebUiGenerator(MENU_MAIN);
-$webUi->addHeader('<link rel="stylesheet" href="./incl/css/styleMain.css">');
+$webUi->addHeader('<link rel="stylesheet" href="./incl/css/styleMain.css?v=' . BB_VERSION . '">', true);
 
 
 $link = (new MenuItemLink())
     ->setText("Delete all")
-    ->setLink('window.location.href=\'' . $_SERVER['PHP_SELF'] . '?delete=req_actions\'');
+    ->setLink('window.location.href=\'' . $CONFIG->getPhpSelfWithBaseUrl() . '?delete=req_actions\'');
 if (sizeof($barcodes['tare']) > 0) {
     $webUi->addCard("Action required", getHtmlMainMenuReqActions($barcodes), $link);
 }
 
 $link = (new MenuItemLink())
     ->setText("Delete all")
-    ->setLink('window.location.href=\'' . $_SERVER['PHP_SELF'] . '?delete=known\'');
+    ->setLink('window.location.href=\'' . $CONFIG->getPhpSelfWithBaseUrl() . '?delete=known\'');
 $webUi->addCard("New Barcodes", getHtmlMainMenuTableKnown($barcodes), $link);
 
 $link = (new MenuItemLink())
     ->setText("Delete all")
-    ->setLink('window.location.href=\'' . $_SERVER['PHP_SELF'] . '?delete=unknown\'');
+    ->setLink('window.location.href=\'' . $CONFIG->getPhpSelfWithBaseUrl() . '?delete=unknown\'');
 $webUi->addCard("Unknown Barcodes", getHtmlMainMenuTableUnknown($barcodes), $link);
 
 $link = (new MenuItemLink())
     ->setText("Clear log")
-    ->setLink('window.location.href=\'' . $_SERVER['PHP_SELF'] . '?delete=log\'');
+    ->setLink('window.location.href=\'' . $CONFIG->getPhpSelfWithBaseUrl() . '?delete=log\'');
 $webUi->addCard("Processed Barcodes", getHtmlLogTextArea(), $link);
+$webUi->addScript("updateRedisCacheAndFederation(false)");
 $webUi->addFooter();
+displayFederationPopupHtml($webUi);
 $webUi->printHtml();
 
+function displayFederationPopupHtml(WebUiGenerator &$webUi) {
+    $config = BBConfig::getInstance();
+    if (!$config["BBUDDY_SERVER_ENABLED"] && !$config["BBUDDY_SERVER_POPUPSHOWN"]) {
+        $webUi->addConfirmDialog("We are proud to introduce Barcode Buddy Federation, which enables you to lookup " .
+            "barcodes that other users have already associated with a Grocy product before. The lookup is very fast " .
+            "(around 100ms, depending on your location) and should be quite accurate.<br>It requires no signup, but " .
+            "is limited to 200 requests per day.<br><br><span style='font-size: smaller'><i>By using this method, you agree that all your Grocy product " .
+            "names that are associated with barcodes, the barcodes itself, your IP address and an unique ID will be " .
+            "sent and stored at a remote Barcode Buddy server located in Germany. No other data is sent or stored and " .
+            "no data will be used for commercial purposes. The sourcecode for the server application is available " .
+            "<a href='https://github.com/Forceu/barcodebuddy-federation/'>on Github</a> and can be selfhosted as well.</i>" .
+            "</span><br><br><b>Would you like to enable Barcode Buddy Federation?</b>",
+            "if (result) { location.href='./index.php?fed=1'; } else { location.href='./index.php?fed=0';}",
+            "Introducing Barcode Buddy Federation", "Use Federation", "Cancel", "large");
+    }
+}
 
 //Check if a button on the web ui was pressed and process
 function processButtons() {
+    global $CONFIG;
     $db = DatabaseConnection::getInstance();
 
     if (isset($_GET["delete"])) {
         $db->deleteAll($_GET["delete"]);
         //Hide get
-        header("Location: " . $_SERVER["PHP_SELF"]);
+        header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
         die();
     }
 
@@ -144,7 +177,7 @@ function processButtons() {
         checkIfNumeric($id);
         $db->deleteBarcode($id);
         //Hide POST, so we can refresh
-        header("Location: " . $_SERVER["PHP_SELF"]);
+        header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
         die();
     }
 
@@ -158,17 +191,7 @@ function processButtons() {
                 $db->deleteBarcode($id);
             }
         }
-        header("Location: " . $_SERVER["PHP_SELF"]);
-    }
-
-
-    if (isset($_POST["button_delete"])) {
-        $id = $_POST["button_delete"];
-        checkIfNumeric($id);
-        $db->deleteBarcode($id);
-        //Hide POST, so we can refresh
-        header("Location: " . $_SERVER["PHP_SELF"]);
-        die();
+        header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
     }
 
     if (isset($_POST["button_add_manual"])) {
@@ -183,7 +206,7 @@ function processButtons() {
         }
 
         //Hide POST, so we can refresh
-        header("Location: " . $_SERVER["PHP_SELF"]);
+        header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
         die();
     }
 
@@ -205,47 +228,55 @@ function processButtons() {
                 checkIfNumeric($amount);
                 if (isset($_POST["tags"])) {
                     foreach ($_POST["tags"][$id] as $tag) {
-                        $db->addTag(sanitizeString($tag), $gidSelected);
+                        TagManager::add(sanitizeString($tag), $gidSelected);
                     }
                 }
-                $product          = API::getProductInfo(sanitizeString($gidSelected));
-                $previousBarcodes = $product["barcode"];
-                if ($previousBarcodes == null) {
-                    API::setBarcode($gidSelected, $barcode);
-                } else {
-                    $asArray = explode(",", $previousBarcodes);
-                    if (!in_array($barcode, $asArray))
-                        API::setBarcode($gidSelected, $previousBarcodes . "," . $barcode);
-                }
-                $log = new LogOutput("Associated barcode $barcode with " . $product["name"], EVENT_TYPE_ASSOCIATE_PRODUCT);
+                $product = API::getProductInfo(sanitizeString($gidSelected));
+                API::addBarcode($gidSelected, $barcode);
+                $log = new LogOutput("Associated barcode $barcode with " . $product->name, EVENT_TYPE_ASSOCIATE_PRODUCT);
                 $log->setVerbose()->dontSendWebsocket()->createLog();
                 $db->deleteBarcode($id);
-                if ($isConsume) {
-                    if ($product["stockAmount"] < $amount)
-                        $amount = $product["stockAmount"];
-                    API::consumeProduct($gidSelected, $amount);
-                    $log = new LogOutput("Consuming $amount " . $product["unit"] . " of " . $product["name"], EVENT_TYPE_ADD_KNOWN_BARCODE);
+                QuantityManager::syncBarcodeToGrocy($barcode);
+                if ($product->isTare) {
+                    if (!$db->isUnknownBarcodeAlreadyStored($barcode))
+                        $db->insertActionRequiredBarcode($barcode, $row["bestBeforeInDays"], $row["price"]);
+                    $log = new LogOutput("Action required: Enter weight for " . $product->name, EVENT_TYPE_ACTION_REQUIRED, $barcode);
                     $log->setVerbose()->dontSendWebsocket()->createLog();
                 } else {
-                    $additionalLog = "";
-                    if (!API::purchaseProduct($gidSelected, $amount, $row["bestBeforeInDays"], $row["price"])) {
-                        $additionalLog = " [WARNING]: No default best before date set!";
+                    if ($isConsume) {
+                        if ($product->stockAmount < $amount)
+                            $amount = $product->stockAmount;
+                        if ($amount > 0) {
+                            API::consumeProduct($gidSelected, $amount);
+                            $log = new LogOutput("Consuming $amount " . $product->unit . " of " . $product->name, EVENT_TYPE_ADD_KNOWN_BARCODE);
+                        } else {
+                            $log = new LogOutput("None in stock, not consuming: " . $product->name, EVENT_TYPE_ADD_KNOWN_BARCODE);
+                        }
+                        $log->setVerbose()->dontSendWebsocket()->createLog();
+                    } else {
+                        $additionalLog = "";
+                        if (!API::purchaseProduct($gidSelected, $amount, $row["bestBeforeInDays"], $row["price"])) {
+                            $additionalLog = " [WARNING]: No default best before date set!";
+                        }
+                        $log = new LogOutput("Adding $amount " . $product->unit . " of " . $product->name . $additionalLog, EVENT_TYPE_ADD_KNOWN_BARCODE);
+                        $log->setVerbose()->dontSendWebsocket()->createLog();
                     }
-                    $log = new LogOutput("Adding $amount " . $product["unit"] . " of " . $product["name"] . $additionalLog, EVENT_TYPE_ADD_KNOWN_BARCODE);
-                    $log->setVerbose()->dontSendWebsocket()->createLog();
                 }
-                $db->refreshQuantityProductName($barcode, $product["name"]);
             }
         }
         //Hide POST, so we can refresh
-        header("Location: " . $_SERVER["PHP_SELF"]);
+        header("Location: " . $CONFIG->getPhpSelfWithBaseUrl());
         die();
     }
 }
 
 
-//Generate the table with barcodes that require actions
-function getHtmlMainMenuReqActions($barcodes) {
+/**
+ * Generate the table with barcodes that require actions
+ * @param array $barcodes
+ * @return string
+ */
+function getHtmlMainMenuReqActions(array $barcodes): string {
     $html = new UiEditor(true, null, "f4");
     if (sizeof($barcodes['tare']) == 0) {
         return "null";
@@ -258,15 +289,15 @@ function getHtmlMainMenuReqActions($barcodes) {
             "Remove"
         ));
         foreach ($barcodes['tare'] as $item) {
-            $product     = API::getProductByBardcode($item['barcode']);
-            $totalWeight = $product['stockAmount'] + $product['tareWeight'];
+            $product     = API::getProductByBarcode($item['barcode']);
+            $totalWeight = $product->stockAmount + $product->tareWeight;
             $table->startRow();
-            $table->addCell($product["name"]);
+            $table->addCell($product->name);
             $table->addCell($totalWeight);
-            $table->addCell($html->buildEditField("quantity_" . $item['id'], "New weight (tare: " . intval($product['tareWeight']) . ")", $totalWeight)
+            $table->addCell($html->buildEditField("quantity_" . $item['id'], "New weight (tare: " . intval($product->tareWeight) . ")", $totalWeight)
                 ->type("number")
                 ->setWidth('8em')
-                ->minmax(array($product['tareWeight'], null))
+                ->minmax(array($product->tareWeight, null))
                 ->generate(true));
             $table->addCell($html->buildButton("button_submit", "Submit")
                 ->setSubmit()
@@ -284,8 +315,12 @@ function getHtmlMainMenuReqActions($barcodes) {
 }
 
 
-//Generate the table with barcodes
-function getHtmlMainMenuTableKnown($barcodes) {
+/**
+ * Generate the table with barcodes
+ * @param array $barcodes
+ * @return string
+ */
+function getHtmlMainMenuTableKnown(array $barcodes): string {
     global $productinfo;
 
     $html = new UiEditor(true, null, "f1");
@@ -293,7 +328,13 @@ function getHtmlMainMenuTableKnown($barcodes) {
         $html->addHtml("No known barcodes yet.");
         return $html->getHtml();
     } else {
-        $table = new TableGenerator(array(
+
+        $containsFederationName = false;
+        foreach ($barcodes['known'] as $item) {
+            if ($item['bbServerAltNames'] != null)
+                $containsFederationName = true;
+        }
+        $arrayTableEntries = array(
             "Name",
             "Barcode",
             "Quantity",
@@ -301,8 +342,11 @@ function getHtmlMainMenuTableKnown($barcodes) {
             "Action",
             "Tags",
             "Create",
-            "Remove"
-        ));
+            "Remove");
+        if ($containsFederationName)
+            array_splice($arrayTableEntries, 1, 0, array("Federation"));
+
+        $table = new TableGenerator($arrayTableEntries);
         foreach ($barcodes['known'] as $item) {
             $isDisabled = "disabled";
             if ($item['match'] != 0) {
@@ -310,7 +354,16 @@ function getHtmlMainMenuTableKnown($barcodes) {
             }
             $itemId = $item['id'];
             $table->startRow();
-            $table->addCell($item['name']);
+            $bbServerButton = "";
+            if ($item['bbServerAltNames'] != null) {
+                if (sizeof($item['bbServerAltNames']) > 1)
+                    $bbServerButton = getVoteButton($item) . getReportButton($item);
+                else
+                    $bbServerButton = getReportButton($item);
+            }
+            $table->addCell(UiEditor::addTextWrap($item['name'], 15));
+            if ($containsFederationName)
+                $table->addCell($bbServerButton);
             $table->addCell($item['barcode']);
             $table->addCell($item['amount']);
             $table->addCell('<select style="max-width: 20em;" onchange=\'enableButton("select_' . $itemId . '", "button_add_' . $item['id'] . '", "button_consume_' . $item['id'] . '")\' id="select_' . $itemId . '" name="select_' . $itemId . '">' . printSelections($item['match'], $productinfo) . '</select>');
@@ -332,7 +385,7 @@ function getHtmlMainMenuTableKnown($barcodes) {
                     ->generate(true));
             $table->addCell(explodeWordsAndMakeCheckboxes($item['name'], $itemId));
             $table->addCell($html->buildButton("button_createproduct", "Create Product")
-                ->setOnClick('openNewTab(\'' . BBConfig::getInstance()["GROCY_BASE_URL"] . 'product/new?closeAfterCreation&prefillname=' . rawurlencode(htmlspecialchars_decode($item['name'], ENT_QUOTES)) . '&prefillbarcode=' . $item['barcode'] . '\', \'' . $item['barcode'] . '\')')
+                ->setOnClick('openNewTab(\'' . BBConfig::getInstance()["GROCY_BASE_URL"] . 'product/new?closeAfterCreation&flow=InplaceNewProductWithName&name=' . rawurlencode(htmlspecialchars_decode($item['name'], ENT_QUOTES)) . '\', \'' . $item['barcode'] . '\')')
                 ->generate(true));
             $table->addCell($html->buildButton("button_delete", "Remove")->setSubmit()->setValue($item['id'])->generate(true));
             $table->endRow();
@@ -342,9 +395,22 @@ function getHtmlMainMenuTableKnown($barcodes) {
     }
 }
 
+function getReportButton(array $item): string {
+    return '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="showReportFederationName(\'' . $item['barcode'] . '\',\'' . $item['name'] . '\')"><span class="icon-flag"></span></button>';
+}
 
-//Generate the table with barcodes
-function getHtmlMainMenuTableUnknown($barcodes) {
+
+function getVoteButton(array $item): string {
+    return '<button type="button" class="btn btn-primary  btn-sm" onclick="showMultipleFederationNames(\'' . $item['barcode'] . '\',\'' . base64_encode(json_encode($item['bbServerAltNames'])) . '\')"><span class="icon-navigation-more"></span></button> ';
+}
+
+
+/**
+ * Generate the table with barcodes
+ * @param array $barcodes
+ * @return string
+ */
+function getHtmlMainMenuTableUnknown(array $barcodes): string {
     global $productinfo;
     global $CONFIG;
     $html = new UiEditor(true, null, "f2");
@@ -400,8 +466,12 @@ function getHtmlMainMenuTableUnknown($barcodes) {
 }
 
 
-//outputs stored logs to the textarea
-function getHtmlLogTextArea() {
+/**
+ * Outputs stored logs to the textarea
+ * @return string
+ * @throws DbConnectionDuringEstablishException
+ */
+function getHtmlLogTextArea(): string {
     $db   = DatabaseConnection::getInstance();
     $logs = $db->getLogs();
     $html = new UiEditor(true, null, "f3");
@@ -414,11 +484,7 @@ function getHtmlLogTextArea() {
             -webkit-appearance: textarea;
                     max-height: 18em;
                     overflow:auto;"
-            contenteditable="true"
-            ondrop="return false"
-            oncut="return false"
-            onpaste="return false"
-            onkeydown="if(event.metaKey) return true; return false;">');
+            contenteditable="false">');
         foreach ($logs as $log) {
             $html->addHtml($log . "<br>");
         }
